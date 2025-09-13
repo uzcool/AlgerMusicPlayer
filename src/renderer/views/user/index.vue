@@ -1,7 +1,7 @@
 <template>
   <div class="user-page">
     <div
-      v-if="userDetail"
+      v-if="userDetail && user"
       class="left"
       :class="setAnimationClass('animate__fadeInLeft')"
       :style="{ backgroundImage: `url(${getImgUrl(user.backgroundUrl)})` }"
@@ -15,7 +15,7 @@
               <div class="label">{{ userDetail.profile.followeds }}</div>
               <div>{{ t('user.profile.followers') }}</div>
             </div>
-            <div class="user-info-item">
+            <div class="user-info-item" @click="showFollowList">
               <div class="label">{{ userDetail.profile.follows }}</div>
               <div>{{ t('user.profile.following') }}</div>
             </div>
@@ -73,10 +73,10 @@
             :class="setAnimationClass('animate__bounceInUp')"
             :style="setAnimationDelay(index, 25)"
           >
-            <song-item class="song-item" :item="item" @play="handlePlay" />
-            <div class="play-count">
-              {{ t('user.ranking.playCount', { count: item.playCount }) }}
+            <div class="play-score">
+              {{ index + 1 }}
             </div>
+            <song-item class="song-item" :item="item" mini @play="handlePlay" />
           </div>
           <play-bottom />
         </n-scrollbar>
@@ -96,10 +96,9 @@
 
 <script lang="ts" setup>
 import { useMessage } from 'naive-ui';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { useStore } from 'vuex';
 
 import { getListDetail } from '@/api/list';
 import { updatePlaylistTracks } from '@/api/music';
@@ -107,6 +106,8 @@ import { getUserDetail, getUserPlaylist, getUserRecord } from '@/api/user';
 import PlayBottom from '@/components/common/PlayBottom.vue';
 import SongItem from '@/components/common/SongItem.vue';
 import MusicList from '@/components/MusicList.vue';
+import { usePlayerStore } from '@/store/modules/player';
+import { useUserStore } from '@/store/modules/user';
 import type { Playlist } from '@/type/listDetail';
 import type { IUserDetail } from '@/type/user';
 import { getImgUrl, isMobile, setAnimationClass, setAnimationDelay } from '@/utils';
@@ -116,7 +117,8 @@ defineOptions({
 });
 
 const { t } = useI18n();
-const store = useStore();
+const userStore = useUserStore();
+const playerStore = usePlayerStore();
 const router = useRouter();
 const userDetail = ref<IUserDetail>();
 const playList = ref<any[]>([]);
@@ -128,7 +130,7 @@ const list = ref<Playlist>();
 const listLoading = ref(false);
 const message = useMessage();
 
-const user = computed(() => store.state.user);
+const user = computed(() => userStore.user);
 
 onBeforeUnmount(() => {
   mounted.value = false;
@@ -145,8 +147,8 @@ const checkLoginStatus = () => {
   }
 
   // 如果store中没有用户数据，但localStorage中有，则恢复用户数据
-  if (!store.state.user && userData) {
-    store.state.user = JSON.parse(userData);
+  if (!userStore.user && userData) {
+    userStore.setUser(JSON.parse(userData));
   }
 
   return true;
@@ -165,27 +167,36 @@ const loadData = async () => {
   try {
     infoLoading.value = true;
 
-    const { data: userData } = await getUserDetail(user.value.userId);
-    if (!mounted.value) return;
-    userDetail.value = userData;
+    if (!user.value) {
+      console.warn('用户数据不存在，尝试重新获取');
+      // 可以尝试重新获取用户数据
+      return;
+    }
 
-    const { data: playlistData } = await getUserPlaylist(user.value.userId);
-    if (!mounted.value) return;
-    playList.value = playlistData.playlist;
+    // 使用 Promise.all 并行请求提高效率
+    const [userDetailRes, playlistRes, recordRes] = await Promise.all([
+      getUserDetail(user.value.userId),
+      getUserPlaylist(user.value.userId),
+      getUserRecord(user.value.userId)
+    ]);
 
-    const { data: recordData } = await getUserRecord(user.value.userId);
     if (!mounted.value) return;
-    recordList.value = recordData.allData.map((item: any) => ({
+
+    userDetail.value = userDetailRes.data;
+    playList.value = playlistRes.data.playlist;
+    recordList.value = recordRes.data.allData.map((item: any) => ({
       ...item,
       ...item.song,
       picUrl: item.song.al.picUrl
     }));
   } catch (error: any) {
     console.error('加载用户页面失败:', error);
-    // 如果获取用户数据失败，可能是token过期
     if (error.response?.status === 401) {
-      store.commit('logout');
+      userStore.handleLogout();
       router.push('/login');
+    } else {
+      // 添加更多错误处理和重试逻辑
+      message.error(t('user.message.loadFailed'));
     }
   } finally {
     if (mounted.value) {
@@ -208,22 +219,19 @@ watch(
 
 // 监听用户状态变化
 watch(
-  () => store.state.user,
+  () => userStore.user,
   (newUser) => {
     if (!mounted.value) return;
-
-    if (!newUser) {
-      router.push('/login');
-    } else {
+    if (newUser) {
+      checkLoginStatus();
       loadPage();
     }
-  },
-  { immediate: true }
+  }
 );
 
 // 页面挂载时检查登录状态
 onMounted(() => {
-  checkLoginStatus();
+  checkLoginStatus() && loadData();
 });
 
 // 展示歌单
@@ -271,8 +279,20 @@ const handleRemoveFromPlaylist = async (songId: number) => {
 
 const handlePlay = () => {
   const tracks = recordList.value || [];
-  store.commit('setPlayList', tracks);
+  playerStore.setPlayList(tracks);
 };
+
+// 显示关注列表
+const showFollowList = () => {
+  if (!user.value) return;
+  router.push('/user/follows');
+};
+
+// // 显示粉丝列表
+// const showFollowerList = () => {
+//   if (!user.value) return;
+//   router.push('/user/followers');
+// };
 </script>
 
 <style lang="scss" scoped>
@@ -312,6 +332,10 @@ const handlePlay = () => {
           @apply text-xl font-bold text-white;
         }
       }
+
+      &-item {
+        @apply cursor-pointer;
+      }
     }
   }
 
@@ -324,16 +348,15 @@ const handlePlay = () => {
       height: calc(100% - 100px);
 
       .record-item {
-        @apply flex items-center px-4;
+        @apply flex items-center px-2 mb-2 rounded-2xl bg-light-100 dark:bg-dark-100;
       }
 
       .song-item {
         @apply flex-1;
       }
 
-      .play-count {
-        @apply ml-4;
-        @apply text-gray-600 dark:text-gray-400;
+      .play-score {
+        @apply text-gray-500 dark:text-gray-400 mr-2 text-lg w-10 h-10 rounded-full flex items-center justify-center;
       }
     }
 

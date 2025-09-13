@@ -90,10 +90,11 @@ import type { MenuOption } from 'naive-ui';
 import { NImage, NText, useMessage } from 'naive-ui';
 import { computed, h, inject, ref, useTemplateRef } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
 import { getSongUrl } from '@/hooks/MusicListHook';
+import { useArtist } from '@/hooks/useArtist';
 import { audioService } from '@/services/audioService';
+import { usePlayerStore } from '@/store';
 import type { SongResult } from '@/type/music';
 import { getImgUrl, isElectron } from '@/utils';
 import { getImageBackground } from '@/utils/linearColor';
@@ -120,11 +121,12 @@ const props = withDefaults(
   }
 );
 
-const store = useStore();
+const playerStore = usePlayerStore();
+
 const message = useMessage();
 
-const play = computed(() => store.state.play as boolean);
-const playMusic = computed(() => store.state.playMusic);
+const play = computed(() => playerStore.isPlay);
+const playMusic = computed(() => playerStore.playMusic);
 const playLoading = computed(
   () => playMusic.value.id === props.item.id && playMusic.value.playLoading
 );
@@ -138,7 +140,9 @@ const dropdownY = ref(0);
 
 const isDownloading = ref(false);
 
-const openPlaylistDrawer = inject<(songId: number) => void>('openPlaylistDrawer');
+const openPlaylistDrawer = inject<(songId: number | string) => void>('openPlaylistDrawer');
+
+const { navigateToArtist } = useArtist();
 
 const renderSongPreview = () => {
   return h(
@@ -281,7 +285,7 @@ const downloadMusic = async () => {
   try {
     isDownloading.value = true;
 
-    const data = (await getSongUrl(props.item.id, cloneDeep(props.item), true)) as any;
+    const data = (await getSongUrl(props.item.id as number, cloneDeep(props.item), true)) as any;
     if (!data || !data.url) {
       throw new Error(t('songItem.message.getUrlFailed'));
     }
@@ -289,14 +293,17 @@ const downloadMusic = async () => {
     // 构建文件名
     const artistNames = (props.item.ar || props.item.song?.artists)?.map((a) => a.name).join(',');
     const filename = `${props.item.name} - ${artistNames}`;
+    console.log('props.item', props.item);
 
+    const songData = cloneDeep(props.item);
+    songData.ar = songData.ar || songData.song?.artists;
     // 发送下载请求
     window.electron.ipcRenderer.send('download-music', {
       url: data.url,
       type: data.type,
       filename,
       songInfo: {
-        ...cloneDeep(props.item),
+        ...songData,
         downloadTime: Date.now()
       }
     });
@@ -354,33 +361,48 @@ const imageLoad = async () => {
 
 // 播放音乐 设置音乐详情 打开音乐底栏
 const playMusicEvent = async (item: SongResult) => {
+  // 如果是当前正在播放的音乐，则切换播放/暂停状态
   if (playMusic.value.id === item.id) {
     if (play.value) {
-      store.commit('setPlayMusic', false);
+      playerStore.setPlayMusic(false);
       audioService.getCurrentSound()?.pause();
     } else {
-      store.commit('setPlayMusic', true);
+      playerStore.setPlayMusic(true);
       audioService.getCurrentSound()?.play();
     }
     return;
   }
-  await store.commit('setPlay', item);
-  store.commit('setIsPlay', true);
-  emits('play', item);
+
+  try {
+    // 使用store的setPlay方法，该方法已经包含了B站视频URL处理逻辑
+    const result = await playerStore.setPlay(item);
+    if (!result) {
+      throw new Error('播放失败');
+    }
+    playerStore.isPlay = true;
+    emits('play', item);
+  } catch (error) {
+    console.error('播放出错:', error);
+  }
 };
 
 // 判断是否已收藏
 const isFavorite = computed(() => {
-  return store.state.favoriteList.includes(props.item.id);
+  // 将id转换为number，兼容B站视频ID
+  const numericId = typeof props.item.id === 'string' ? parseInt(props.item.id, 10) : props.item.id;
+  return playerStore.favoriteList.includes(numericId);
 });
 
 // 切换收藏状态
 const toggleFavorite = async (e: Event) => {
   e.stopPropagation();
+  // 将id转换为number，兼容B站视频ID
+  const numericId = typeof props.item.id === 'string' ? parseInt(props.item.id, 10) : props.item.id;
+
   if (isFavorite.value) {
-    store.commit('removeFromFavorite', props.item.id);
+    playerStore.removeFromFavorite(numericId);
   } else {
-    store.commit('addToFavorite', props.item.id);
+    playerStore.addToFavorite(numericId);
   }
 };
 
@@ -390,7 +412,7 @@ const toggleSelect = () => {
 };
 
 const handleArtistClick = (id: number) => {
-  store.commit('setCurrentArtistId', id);
+  navigateToArtist(id);
 };
 
 // 获取歌手列表（最多显示5个）
@@ -400,7 +422,7 @@ const artists = computed(() => {
 
 // 添加到下一首播放
 const handlePlayNext = () => {
-  store.commit('addToNextPlay', props.item);
+  playerStore.addToNextPlay(props.item);
   message.success(t('songItem.message.addedToNextPlay'));
 };
 </script>

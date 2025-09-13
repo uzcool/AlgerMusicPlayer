@@ -56,6 +56,15 @@ export default {
       dolby: '杜比全景声',
       jymaster: '超清母带'
     },
+    musicSources: '音源设置',
+    musicSourcesDesc: '选择音乐解析使用的音源平台',
+    musicSourcesWarning: '至少需要选择一个音源平台',
+    musicUnblockEnable: '启用音乐解析',
+    musicUnblockEnableDesc: '开启后将尝试解析无法播放的音乐',
+    configureMusicSources: '配置音源',
+    selectedMusicSources: '已选音源：',
+    noMusicSources: '未选择音源',
+    gdmusicInfo: 'GD音乐台可自动解析多个平台音源，自动选择最佳结果',
     autoPlay: '自动播放',
     autoPlayDesc: '重新打开应用时是否自动继续播放'
   },
@@ -71,8 +80,12 @@ export default {
     shortcutDesc: '自定义全局快捷键',
     download: '下载管理',
     downloadDesc: '是否始终显示下载列表按钮',
+    unlimitedDownload: '无限制下载',
+    unlimitedDownloadDesc: '开启后将无限制下载音乐（可能出现下载失败的情况）, 默认限制 300 首',
     downloadPath: '下载目录',
-    downloadPathDesc: '选择音乐文件的下载位置'
+    downloadPathDesc: '选择音乐文件的下载位置',
+    remoteControl: '远程控制',
+    remoteControlDesc: '设置远程控制功能'
   },
   network: {
     apiPort: '音乐API端口',
@@ -181,6 +194,13 @@ export default {
       default: '默认',
       light: '亮色',
       dark: '暗色'
+    },
+    hideMiniPlayBar: '隐藏迷你播放栏',
+    hideLyrics: '隐藏歌词',
+    tabs: {
+      interface: '界面',
+      typography: '文字',
+      display: '显示'
     }
   },
   shortcutSettings: {
@@ -190,6 +210,8 @@ export default {
     shortcutConflict: '快捷键冲突',
     inputPlaceholder: '点击输入快捷键',
     resetShortcuts: '恢复默认',
+    disableAll: '全部禁用',
+    enableAll: '全部启用',
     togglePlay: '播放/暂停',
     prevPlay: '上一首',
     nextPlay: '下一首',
@@ -197,12 +219,28 @@ export default {
     volumeDown: '音量减少',
     toggleFavorite: '收藏/取消收藏',
     toggleWindow: '显示/隐藏窗口',
+    scopeGlobal: '全局',
+    scopeApp: '应用内',
+    enabled: '启用',
+    disabled: '禁用',
     messages: {
       resetSuccess: '已恢复默认快捷键，请记得保存',
       conflict: '存在冲突的快捷键，请重新设置',
       saveSuccess: '快捷键设置已保存',
       saveError: '保存快捷键失败，请重试',
-      cancelEdit: '已取消修改'
+      cancelEdit: '已取消修改',
+      disableAll: '已禁用所有快捷键，请记得保存',
+      enableAll: '已启用所有快捷键，请记得保存'
     }
+  },
+  remoteControl: {
+    title: '远程控制',
+    enable: '启用远程控制',
+    port: '服务端口',
+    allowedIps: '允许的IP地址',
+    addIp: '添加IP',
+    emptyListHint: '空列表表示允许所有IP访问',
+    saveSuccess: '远程控制设置已保存',
+    accessInfo: '远程控制访问地址:',
   }
 };

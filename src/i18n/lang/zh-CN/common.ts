@@ -26,6 +26,7 @@ export default {
   delete: '删除',
   refresh: '刷新',
   retry: '重试',
+  reset: '重置',
   validation: {
     required: '此项是必填的',
     invalidInput: '输入无效',
@@ -41,6 +42,11 @@ export default {
   language: '语言',
   tray: {
     show: '显示',
-    quit: '退出'
+    quit: '退出',
+    playPause: '播放/暂停',
+    prev: '上一首',
+    next: '下一首',
+    pause: '暂停',
+    play: '播放'
   }
 };

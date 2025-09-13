@@ -2,19 +2,35 @@
   <div id="title-bar" @mousedown="drag">
     <div id="title">Alger Music</div>
     <div id="buttons">
-      <div class="button" @click="minimize">
-        <i class="iconfont icon-minisize"></i>
-      </div>
-      <div class="button" @click="close">
-        <i class="iconfont icon-close"></i>
-      </div>
+      <n-button
+        v-if="!isElectron"
+        type="primary"
+        size="small"
+        text
+        title="下载应用"
+        @click="openDownloadPage"
+      >
+        <i class="ri-download-line"></i>
+        下载桌面版
+      </n-button>
+      <template v-if="isElectron">
+        <div class="button" @click="miniWindow">
+          <i class="iconfont ri-picture-in-picture-line"></i>
+        </div>
+        <div class="button" @click="minimize">
+          <i class="iconfont icon-minisize"></i>
+        </div>
+        <div class="button" @click="handleClose">
+          <i class="iconfont icon-close"></i>
+        </div>
+      </template>
     </div>
   </div>
 
   <n-modal
     v-model:show="showCloseModal"
     preset="dialog"
-    title="关闭应用"
+    :title="t('comp.titleBar.closeApp')"
     :style="{ width: '400px' }"
     :mask-closable="true"
   >
@@ -42,15 +58,21 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
+import { useSettingsStore } from '@/store/modules/settings';
 import { isElectron } from '@/utils';
 
 const { t } = useI18n();
 
-const store = useStore();
+const settingsStore = useSettingsStore();
 const showCloseModal = ref(false);
 const rememberChoice = ref(false);
+
+const openDownloadPage = () => {
+  if (!isElectron) {
+    window.open('http://donate.alger.fun/download', '_blank');
+  }
+};
 
 const minimize = () => {
   if (!isElectron) {
@@ -59,10 +81,15 @@ const minimize = () => {
   window.api.minimize();
 };
 
+const miniWindow = () => {
+  if (!isElectron) return;
+  window.api.miniWindow();
+};
+
 const handleAction = (action: 'minimize' | 'close') => {
   if (rememberChoice.value) {
-    store.commit('setSetData', {
-      ...store.state.setData,
+    settingsStore.setSetData({
+      ...settingsStore.setData,
       closeAction: action
     });
   }
@@ -75,24 +102,16 @@ const handleAction = (action: 'minimize' | 'close') => {
   showCloseModal.value = false;
 };
 
-const close = () => {
-  if (!isElectron) {
-    return;
-  }
-
-  const { closeAction } = store.state.setData;
+const handleClose = () => {
+  const { closeAction } = settingsStore.setData;
 
   if (closeAction === 'minimize') {
     window.api.miniTray();
-    return;
-  }
-
-  if (closeAction === 'close') {
+  } else if (closeAction === 'close') {
     window.api.close();
-    return;
+  } else {
+    showCloseModal.value = true;
   }
-
-  showCloseModal.value = true;
 };
 
 const drag = (event: MouseEvent) => {

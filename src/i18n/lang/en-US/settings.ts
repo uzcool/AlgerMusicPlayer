@@ -56,6 +56,15 @@ export default {
       dolby: 'Dolby Atmos',
       jymaster: 'Master'
     },
+    musicSources: 'Music Sources',
+    musicSourcesDesc: 'Select music sources for song resolution',
+    musicSourcesWarning: 'At least one music source must be selected',
+    musicUnblockEnable: 'Enable Music Unblocking',
+    musicUnblockEnableDesc: 'When enabled, attempts to resolve unplayable songs',
+    configureMusicSources: 'Configure Sources',
+    selectedMusicSources: 'Selected sources:',
+    noMusicSources: 'No sources selected',
+    gdmusicInfo: 'GD Music Station intelligently resolves music from multiple platforms automatically',
     autoPlay: 'Auto Play',
     autoPlayDesc: 'Auto resume playback when reopening the app'
   },
@@ -71,8 +80,12 @@ export default {
     shortcutDesc: 'Customize global shortcuts',
     download: 'Download Management',
     downloadDesc: 'Always show download list button',
+    unlimitedDownload: 'Unlimited Download',
+    unlimitedDownloadDesc: 'Enable unlimited download mode for music , default limit 300 songs',
     downloadPath: 'Download Directory',
-    downloadPathDesc: 'Choose download location for music files'
+    downloadPathDesc: 'Choose download location for music files',
+    remoteControl: 'Remote Control',
+    remoteControlDesc: 'Set remote control function'
   },
   network: {
     apiPort: 'Music API Port',
@@ -181,6 +194,13 @@ export default {
       default: 'Default',
       light: 'Light',
       dark: 'Dark'
+    },
+    hideMiniPlayBar: 'Hide Mini Play Bar',
+    hideLyrics: 'Hide Lyrics',
+    tabs: {
+      interface: 'Interface',
+      display: 'Display',
+      typography: 'Typography'
     }
   },
   shortcutSettings: {
@@ -190,6 +210,8 @@ export default {
     shortcutConflict: 'Shortcut Conflict',
     inputPlaceholder: 'Click to input shortcut',
     resetShortcuts: 'Reset',
+    disableAll: 'Disable All',
+    enableAll: 'Enable All',
     togglePlay: 'Play/Pause',
     prevPlay: 'Previous',
     nextPlay: 'Next',
@@ -197,12 +219,28 @@ export default {
     volumeDown: 'Volume Down',
     toggleFavorite: 'Favorite/Unfavorite',
     toggleWindow: 'Show/Hide Window',
+    scopeGlobal: 'Global',
+    scopeApp: 'App Only',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
     messages: {
       resetSuccess: 'Shortcuts reset successfully, please save',
       conflict: 'Shortcut conflict, please reset',
       saveSuccess: 'Shortcuts saved successfully',
       saveError: 'Failed to save shortcuts',
-      cancelEdit: 'Edit cancelled'
+      cancelEdit: 'Edit cancelled',
+      disableAll: 'All shortcuts disabled, please save to apply',
+      enableAll: 'All shortcuts enabled, please save to apply'
     }
+  },
+  remoteControl: {
+    title: 'Remote Control',
+    enable: 'Enable Remote Control',
+    port: 'Port',
+    allowedIps: 'Allowed IPs',
+    addIp: 'Add IP',
+    emptyListHint: 'Empty list means allow all IPs',
+    saveSuccess: 'Remote control settings saved',
+    accessInfo: 'Remote control access address:',
   }
 };

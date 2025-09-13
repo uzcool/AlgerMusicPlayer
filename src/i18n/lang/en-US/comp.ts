@@ -39,7 +39,18 @@ export default {
     downloadFailed: 'Download failed, please try again or download manually',
     startFailed: 'Start download failed, please try again or download manually',
     noDownloadUrl:
-      'No suitable installation package found for the current system, please download manually'
+      'No suitable installation package found for the current system, please download manually',
+    installConfirmTitle: 'Install Update',
+    installConfirmContent: 'Do you want to close the application and install the update?',
+    manualInstallTip:
+      'If the installer does not open automatically after closing the application, please find the file in your download folder and open it manually.',
+    yesInstall: 'Install Now',
+    noThanks: 'Later',
+    fileLocation: 'File Location',
+    copy: 'Copy Path',
+    copySuccess: 'Path copied to clipboard',
+    copyFailed: 'Copy failed',
+    backgroundDownload: 'Background Download'
   },
   coffee: {
     title: 'Buy me a coffee',
@@ -52,7 +63,8 @@ export default {
     qqGroup: 'QQ group: 789288579',
     messages: {
       copySuccess: 'Copied to clipboard'
-    }
+    },
+    donateList: 'Buy me a coffee'
   },
   playlistType: {
     title: 'Playlist Category',
@@ -84,6 +96,14 @@ export default {
     closeTitle: 'Choose how to close',
     minimizeToTray: 'Minimize to Tray',
     exitApp: 'Exit App',
-    rememberChoice: 'Remember my choice'
+    rememberChoice: 'Remember my choice',
+    closeApp: 'Close App'
+  },
+  userPlayList: {
+    title: "{name}'s Playlist"
+  },
+  musicList: {
+    searchSongs: 'Search Songs',
+    noSearchResults: 'No search results'
   }
 };

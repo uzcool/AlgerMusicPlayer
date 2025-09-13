@@ -20,5 +20,8 @@
   "autoPlay": false,
   "downloadPath": "",
   "language": "zh-CN",
-  "alwaysShowDownloadButton": false
+  "alwaysShowDownloadButton": false,
+  "unlimitedDownload": false,
+  "enableMusicUnblock": true,
+  "enabledMusicSources": ["migu", "kugou", "pyncmd", "bilibili", "youtube"]
 }

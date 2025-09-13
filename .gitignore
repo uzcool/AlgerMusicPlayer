@@ -16,9 +16,14 @@ dist.zip
 .vscode
 
 bun.lockb
+bun.lock
 
 .env.*.local
 
 out
 
 .cursorrules
+
+.github/deploy_keys
+
+resources/android/**/*

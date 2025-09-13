@@ -5,6 +5,7 @@ import { ref } from 'vue';
 import { getMusicLrc, getMusicUrl, getParsingMusicUrl } from '@/api/music';
 import { useMusicHistory } from '@/hooks/MusicHistoryHook';
 import { audioService } from '@/services/audioService';
+import { useSettingsStore } from '@/store';
 import type { ILyric, ILyricText, SongResult } from '@/type/music';
 import { getImgUrl } from '@/utils';
 import { getImageLinearBackground } from '@/utils/linearColor';
@@ -12,13 +13,17 @@ import { getImageLinearBackground } from '@/utils/linearColor';
 const musicHistory = useMusicHistory();
 
 // 获取歌曲url
-export const getSongUrl = async (id: number, songData: any, isDownloaded: boolean = false) => {
-  const { data } = await getMusicUrl(id, isDownloaded);
+export const getSongUrl = async (id: any, songData: any, isDownloaded: boolean = false) => {
+  const settingsStore = useSettingsStore();
+  const { unlimitedDownload } = settingsStore.setData;
+
+  const { data } = await getMusicUrl(id, !unlimitedDownload);
   let url = '';
   let songDetail = null;
+
   try {
     if (data.data[0].freeTrialInfo || !data.data[0].url) {
-      const res = await getParsingMusicUrl(id, songData);
+      const res = await getParsingMusicUrl(id, cloneDeep(songData));
       url = res.data.data.url;
       songDetail = res.data.data;
     } else {
@@ -49,11 +54,19 @@ const getSongDetail = async (playMusic: SongResult) => {
 
 // 加载 当前歌曲 歌曲列表数据 下一首mp3预加载 歌词数据
 export const useMusicListHook = () => {
-  const handlePlayMusic = async (state: any, playMusic: SongResult) => {
+  const handlePlayMusic = async (state: any, playMusic: SongResult, isPlay: boolean = true) => {
     const updatedPlayMusic = await getSongDetail(playMusic);
     state.playMusic = updatedPlayMusic;
     state.playMusicUrl = updatedPlayMusic.playMusicUrl;
-    state.play = true;
+
+    // 记录当前设置的播放状态
+    state.play = isPlay;
+
+    // 每次设置新歌曲时，立即更新 localStorage
+    localStorage.setItem('currentPlayMusic', JSON.stringify(state.playMusic));
+    localStorage.setItem('currentPlayMusicUrl', state.playMusicUrl);
+    localStorage.setItem('isPlaying', state.play.toString());
+
     // 设置网页标题
     document.title = `${updatedPlayMusic.name} - ${updatedPlayMusic?.song?.artists?.reduce((prev, curr) => `${prev}${curr.name}/`, '')}`;
     loadLrcAsync(state, updatedPlayMusic.id);
@@ -239,7 +252,7 @@ export const useMusicListHook = () => {
   };
 
   // 异步加载歌词的方法
-  const loadLrcAsync = async (state: any, playMusicId: number) => {
+  const loadLrcAsync = async (state: any, playMusicId: any) => {
     if (state.playMusic.lyric && state.playMusic.lyric.lrcTimeArray.length > 0) {
       return;
     }

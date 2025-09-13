@@ -113,8 +113,10 @@ const isText = ref(false);
   .app-menu {
     max-width: 100%;
     width: 100vw;
-    position: relative;
-    z-index: 999999;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    z-index: 99999;
     @apply bg-light dark:bg-black border-t border-gray-200 dark:border-gray-700;
 
     &-header {
@@ -122,12 +124,12 @@ const isText = ref(false);
     }
 
     &-list {
-      @apply flex justify-between;
+      @apply flex justify-between px-4;
     }
 
     &-item {
       &-link {
-        @apply my-4 w-auto;
+        @apply my-2 w-auto;
       }
     }
   }

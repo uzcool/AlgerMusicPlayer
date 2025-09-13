@@ -13,23 +13,35 @@ export interface ILyric {
 }
 
 export interface SongResult {
-  id: number;
-  type: number;
+  id: string | number;
   name: string;
-  copywriter?: any;
   picUrl: string;
-  canDislike: boolean;
-  trackNumberUpdateTime?: any;
-  song: Song;
-  alg: string;
-  count?: number;
+  playCount?: number;
+  song?: any;
+  copywriter?: string;
+  type?: number;
+  canDislike?: boolean;
+  program?: any;
+  alg?: string;
+  ar: Artist[];
+  artists?: Artist[];
+  al: Album;
+  album?: Album;
+  count: number;
+  playMusicUrl?: string;
   playLoading?: boolean;
-  ar?: Artist[];
-  al?: Album;
+  lyric?: ILyric;
   backgroundColor?: string;
   primaryColor?: string;
-  playMusicUrl?: string;
-  lyric?: ILyric;
+  bilibiliData?: {
+    bvid: string;
+    cid: number;
+  };
+  source?: 'netease' | 'bilibili';
+  // 过期时间
+  expiredAt?: number;
+  // 获取时间
+  createdAt?: number;
 }
 
 export interface Song {
@@ -214,3 +226,32 @@ interface FreeTrialPrivilege {
   resConsumable: boolean;
   userConsumable: boolean;
 }
+
+export interface IArtists {
+  id: number;
+  name: string;
+  picUrl: string | null;
+  alias: string[];
+  albumSize: number;
+  picId: number;
+  fansGroup: null;
+  img1v1Url: string;
+  img1v1: number;
+  trans: null;
+}
+
+// 音乐源类型定义
+export type MusicSourceType = 
+  | 'tencent' 
+  | 'kugou' 
+  | 'kuwo' 
+  | 'migu' 
+  | 'netease' 
+  | 'joox' 
+  | 'ytmusic' 
+  | 'spotify' 
+  | 'qobuz' 
+  | 'deezer'
+  | 'gdmusic';
+  
+// 更多音乐相关的类型可以在这里定义

@@ -13,7 +13,7 @@
         ? textColors.theme === 'dark'
           ? '#000000'
           : '#ffffff'
-        : store.state.theme === 'dark'
+        : settingsStore.theme === 'dark'
           ? '#ffffff'
           : '#000000'
     }"
@@ -25,6 +25,11 @@
         :max="allTime"
         :min="0"
         :format-tooltip="formatTooltip"
+        :show-tooltip="showSliderTooltip"
+        @mouseenter="showSliderTooltip = true"
+        @mouseleave="showSliderTooltip = false"
+        @dragstart="handleSliderDragStart"
+        @dragend="handleSliderDragEnd"
       ></n-slider>
     </div>
     <div class="play-bar-img-wrapper" @click="setMusicFull">
@@ -113,13 +118,14 @@
         <template #trigger>
           <i
             class="iconfont ri-netease-cloud-music-line"
-            :class="{ 'text-green-500': isLyricWindowOpen }"
-            @click="openLyricWindow"
+            :class="{ 'text-green-500': isLyricWindowOpen, 'disabled-icon': !playMusic.id }"
+            @click="playMusic.id && openLyricWindow()"
           ></i>
         </template>
-        {{ t('player.playBar.lyric') }}
+        {{ playMusic.id ? t('player.playBar.lyric') : t('player.playBar.noSongPlaying') }}
       </n-tooltip>
       <n-popover
+        v-if="isElectron"
         trigger="click"
         :z-index="99999999"
         content-class="music-eq"
@@ -138,6 +144,8 @@
         </template>
         <eq-control />
       </n-popover>
+      <!-- 定时关闭功能 -->
+      <sleep-timer-popover mode="desktop" />
       <n-popover
         trigger="click"
         :z-index="99999999"
@@ -161,7 +169,14 @@
           <n-virtual-list ref="palyListRef" :item-size="62" item-resizable :items="playList">
             <template #default="{ item }">
               <div class="music-play-list-content">
-                <song-item :key="item.id" :item="item" mini></song-item>
+                <div class="flex items-center justify-between">
+                  <song-item :key="item.id" class="flex-1" :item="item" mini></song-item>
+                  <div class="delete-btn" @click.stop="handleDeleteSong(item)">
+                    <i
+                      class="iconfont ri-delete-bin-line text-gray-400 hover:text-red-500 transition-colors"
+                    ></i>
+                  </div>
+                </div>
               </div>
             </template>
           </n-virtual-list>
@@ -175,12 +190,13 @@
 
 <script lang="ts" setup>
 import { useThrottleFn } from '@vueuse/core';
+import { useMessage } from 'naive-ui';
 import { computed, ref, useTemplateRef, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
 import SongItem from '@/components/common/SongItem.vue';
 import EqControl from '@/components/EQControl.vue';
+import SleepTimerPopover from '@/components/player/SleepTimerPopover.vue';
 import {
   allTime,
   artistList,
@@ -188,27 +204,32 @@ import {
   nowTime,
   openLyric,
   playMusic,
-  sound,
   textColors
 } from '@/hooks/MusicHook';
+import { useArtist } from '@/hooks/useArtist';
+import MusicFull from '@/layout/components/MusicFull.vue';
 import { audioService } from '@/services/audioService';
+import { 
+  isBilibiliIdMatch, 
+  usePlayerStore 
+} from '@/store/modules/player';
+import { useSettingsStore } from '@/store/modules/settings';
 import type { SongResult } from '@/type/music';
 import { getImgUrl, isElectron, isMobile, secondToMinute, setAnimationClass } from '@/utils';
-import { showShortcutToast } from '@/utils/shortcutToast';
 
-import MusicFull from './MusicFull.vue';
-
-const store = useStore();
+const playerStore = usePlayerStore();
+const settingsStore = useSettingsStore();
 const { t } = useI18n();
+const message = useMessage();
 // 是否播放
-const play = computed(() => store.state.play as boolean);
+const play = computed(() => playerStore.isPlay);
 // 播放列表
-const playList = computed(() => store.state.playList as SongResult[]);
+const playList = computed(() => playerStore.playList as SongResult[]);
 // 背景颜色
 const background = ref('#000');
 
 watch(
-  () => store.state.playMusic,
+  () => playerStore.playMusic,
   async () => {
     background.value = playMusic.value.backgroundColor as string;
   },
@@ -217,17 +238,47 @@ watch(
 
 // 节流版本的 seek 函数
 const throttledSeek = useThrottleFn((value: number) => {
-  if (!sound.value) return;
-  sound.value.seek(value);
+  audioService.seek(value);
   nowTime.value = value;
 }, 50); // 50ms 的节流延迟
 
+// 拖动时的临时值，避免频繁更新 nowTime 触发重渲染
+const dragValue = ref(0);
+
+// 为滑块拖动添加状态跟踪
+const isDragging = ref(false);
+
 // 修改 timeSlider 计算属性
 const timeSlider = computed({
-  get: () => nowTime.value,
-  set: throttledSeek
+  get: () => (isDragging.value ? dragValue.value : nowTime.value),
+  set: (value) => {
+    if (isDragging.value) {
+      // 拖动中只更新临时值，不触发 nowTime 更新和 seek 操作
+      dragValue.value = value;
+      return;
+    }
+
+    // 点击操作 (非拖动)，可以直接 seek
+    throttledSeek(value);
+  }
 });
 
+// 添加滑块拖动开始和结束事件处理
+const handleSliderDragStart = () => {
+  isDragging.value = true;
+  // 初始化拖动值为当前时间
+  dragValue.value = nowTime.value;
+};
+
+const handleSliderDragEnd = () => {
+  isDragging.value = false;
+
+  // 直接应用最终的拖动值
+  audioService.seek(dragValue.value);
+  nowTime.value = dragValue.value;
+};
+
+// 格式化提示文本，根据拖动状态显示不同的时间
 const formatTooltip = (value: number) => {
   return `${secondToMinute(value)} / ${secondToMinute(allTime.value)}`;
 };
@@ -250,9 +301,8 @@ const getVolumeIcon = computed(() => {
 const volumeSlider = computed({
   get: () => audioVolume.value * 100,
   set: (value) => {
-    if (!sound.value) return;
     localStorage.setItem('volume', (value / 100).toString());
-    sound.value.volume(value / 100);
+    audioService.setVolume(value / 100);
     audioVolume.value = value / 100;
   }
 });
@@ -267,7 +317,7 @@ const mute = () => {
 };
 
 // 播放模式
-const playMode = computed(() => store.state.playMode);
+const playMode = computed(() => playerStore.playMode);
 const playModeIcon = computed(() => {
   switch (playMode.value) {
     case 0:
@@ -295,49 +345,60 @@ const playModeText = computed(() => {
 
 // 切换播放模式
 const togglePlayMode = () => {
-  store.commit('togglePlayMode');
+  playerStore.togglePlayMode();
 };
 
 function handleNext() {
-  store.commit('nextPlay');
+  playerStore.nextPlay();
 }
 
 function handlePrev() {
-  store.commit('prevPlay');
+  playerStore.prevPlay();
 }
 
 const MusicFullRef = ref<any>(null);
+const showSliderTooltip = ref(false);
 
 // 播放暂停按钮事件
 const playMusicEvent = async () => {
   try {
-    // 检查是否有有效的音乐对象和 URL
-    if (!playMusic.value?.id || !store.state.playMusicUrl) {
-      console.warn('No valid music or URL available');
-      store.commit('setPlay', playMusic.value);
+    // 检查是否有有效的音乐对象
+    if (!playMusic.value?.id) {
+      console.warn('没有有效的播放对象');
       return;
     }
 
+    // 当前处于播放状态 -> 暂停
     if (play.value) {
-      // 暂停播放
       if (audioService.getCurrentSound()) {
         audioService.pause();
-        store.commit('setPlayMusic', false);
+        playerStore.setPlayMusic(false);
       }
-    } else {
-      // 开始播放
-      if (audioService.getCurrentSound()) {
-        // 如果已经有音频实例，直接播放
-        audioService.play();
-      } else {
-        // 如果没有音频实例，重新创建并播放
-        await audioService.play(store.state.playMusicUrl, playMusic.value);
+      return;
+    }
+
+    // 当前处于暂停状态 -> 播放
+    // 有音频实例，直接播放
+    if (audioService.getCurrentSound()) {
+      audioService.play();
+      playerStore.setPlayMusic(true);
+      return;
+    }
+
+    // 没有音频实例，重新获取并播放（包括重新获取B站视频URL）
+    try {
+      // 复用当前播放对象，但强制重新获取URL
+      const result = await playerStore.setPlay({ ...playMusic.value, playMusicUrl: undefined });
+      if (result) {
+        playerStore.setPlayMusic(true);
       }
-      store.commit('setPlayMusic', true);
+    } catch (error) {
+      console.error('重新获取播放链接失败:', error);
+      message.error(t('player.playFailed'));
     }
   } catch (error) {
     console.error('播放出错:', error);
-    store.commit('nextPlay');
+    message.error(t('player.playFailed'));
   }
 };
 
@@ -346,31 +407,48 @@ const musicFullVisible = ref(false);
 // 设置musicFull
 const setMusicFull = () => {
   musicFullVisible.value = !musicFullVisible.value;
-  store.commit('setMusicFull', musicFullVisible.value);
+  playerStore.setMusicFull(musicFullVisible.value);
   if (musicFullVisible.value) {
-    store.commit('setShowArtistDrawer', false);
+    settingsStore.showArtistDrawer = false;
   }
 };
 
-const palyListRef = useTemplateRef('palyListRef');
+const palyListRef = useTemplateRef('palyListRef') as any;
 
 const scrollToPlayList = (val: boolean) => {
   if (!val) return;
   setTimeout(() => {
-    palyListRef.value?.scrollTo({ top: store.state.playListIndex * 62 });
+    palyListRef.value?.scrollTo({ top: playerStore.playListIndex * 62 });
   }, 50);
 };
 
 const isFavorite = computed(() => {
-  return store.state.favoriteList.includes(playMusic.value.id);
+  // 对于B站视频，使用ID匹配函数
+  if (playMusic.value.source === 'bilibili' && playMusic.value.bilibiliData?.bvid) {
+    return playerStore.favoriteList.some(id => isBilibiliIdMatch(id, playMusic.value.id));
+  }
+  
+  // 非B站视频直接比较ID
+  return playerStore.favoriteList.includes(playMusic.value.id);
 });
 
 const toggleFavorite = async (e: Event) => {
+  console.log('playMusic.value', playMusic.value);
   e.stopPropagation();
+  
+  // 处理B站视频的收藏ID
+  let favoriteId = playMusic.value.id;
+  if (playMusic.value.source === 'bilibili' && playMusic.value.bilibiliData?.bvid) {
+    // 如果当前播放的是B站视频，且已有ID不包含--格式，则需要构造完整ID
+    if (!String(favoriteId).includes('--')) {
+      favoriteId = `${playMusic.value.bilibiliData.bvid}--${playMusic.value.song?.ar?.[0]?.id || 0}--${playMusic.value.bilibiliData.cid}`;
+    }
+  }
+  
   if (isFavorite.value) {
-    store.commit('removeFromFavorite', playMusic.value.id);
+    playerStore.removeFromFavorite(favoriteId);
   } else {
-    store.commit('addToFavorite', playMusic.value.id);
+    playerStore.addToFavorite(favoriteId);
   }
 };
 
@@ -378,64 +456,12 @@ const openLyricWindow = () => {
   openLyric();
 };
 
+const { navigateToArtist } = useArtist();
+
 const handleArtistClick = (id: number) => {
   musicFullVisible.value = false;
-  store.commit('setCurrentArtistId', id);
+  navigateToArtist(id);
 };
-
-// 添加全局快捷键处理
-if (isElectron) {
-  window.electron.ipcRenderer.on('global-shortcut', (_, action: string) => {
-    console.log('action', action);
-    switch (action) {
-      case 'togglePlay':
-        playMusicEvent();
-        showShortcutToast(
-          store.state.play ? t('player.playBar.play') : t('player.playBar.pause'),
-          store.state.play ? 'ri-pause-circle-line' : 'ri-play-circle-line'
-        );
-        break;
-      case 'prevPlay':
-        handlePrev();
-        showShortcutToast(t('player.playBar.prev'), 'ri-skip-back-line');
-        break;
-      case 'nextPlay':
-        handleNext();
-        showShortcutToast(t('player.playBar.next'), 'ri-skip-forward-line');
-        break;
-      case 'volumeUp':
-        if (volumeSlider.value < 100) {
-          volumeSlider.value = Math.min(volumeSlider.value + 10, 100);
-          showShortcutToast(
-            `${t('player.playBar.volume')}${volumeSlider.value}%`,
-            'ri-volume-up-line'
-          );
-        }
-        break;
-      case 'volumeDown':
-        if (volumeSlider.value > 0) {
-          volumeSlider.value = Math.max(volumeSlider.value - 10, 0);
-          showShortcutToast(
-            `${t('player.playBar.volume')}${volumeSlider.value}%`,
-            'ri-volume-down-line'
-          );
-        }
-        break;
-      case 'toggleFavorite':
-        toggleFavorite(new Event('click'));
-        showShortcutToast(
-          isFavorite.value
-            ? t('player.playBar.favorite', { name: playMusic.value.name })
-            : t('player.playBar.unFavorite', { name: playMusic.value.name }),
-          isFavorite.value ? 'ri-heart-fill' : 'ri-heart-line'
-        );
-        break;
-      default:
-        console.log('未知的快捷键动作:', action);
-        break;
-    }
-  });
-}
 
 // 监听播放栏显示状态
 watch(
@@ -448,6 +474,15 @@ watch(
 );
 
 const isEQVisible = ref(false);
+
+// 在 script setup 部分添加删除歌曲的处理函数
+const handleDeleteSong = (song: SongResult) => {
+  // 如果删除的是当前播放的歌曲，先切换到下一首
+  if (song.id === playMusic.value.id) {
+    playerStore.nextPlay();
+  }
+  playerStore.removeFromPlayList(song.id as number);
+};
 </script>
 
 <style lang="scss" scoped>
@@ -564,7 +599,7 @@ const isEQVisible = ref(false);
 
 .mobile {
   .music-play-bar {
-    @apply px-4 bottom-[70px] transition-all duration-300;
+    @apply px-4 bottom-[56px] transition-all duration-300;
   }
   .music-time {
     display: none;
@@ -632,8 +667,16 @@ const isEQVisible = ref(false);
       opacity: 0;
     }
 
-    &:hover .n-slider-handle {
-      opacity: 1;
+    &:hover {
+      .n-slider-handle {
+        opacity: 1;
+      }
+    }
+
+    // 确保悬停时提示样式正确
+    .n-slider-tooltip {
+      @apply bg-gray-800 text-white text-xs py-1 px-2 rounded;
+      z-index: 999999;
     }
   }
 }
@@ -677,6 +720,13 @@ const isEQVisible = ref(false);
   @apply text-red-500 hover:text-red-600 !important;
 }
 
+.disabled-icon {
+  @apply opacity-50 cursor-not-allowed !important;
+  &:hover {
+    @apply text-inherit !important;
+  }
+}
+
 .icon-loop,
 .icon-single-loop {
   font-size: 1.5rem;
@@ -694,5 +744,18 @@ const isEQVisible = ref(false);
   @apply p-4 rounded-3xl;
   backdrop-filter: blur(20px);
   @apply bg-light dark:bg-black bg-opacity-75;
+}
+
+.music-play-list-content {
+  @apply mx-2;
+
+  .delete-btn {
+    @apply p-2 rounded-full transition-colors duration-200 cursor-pointer;
+    @apply hover:bg-red-50 dark:hover:bg-red-900/20;
+
+    .iconfont {
+      @apply text-lg;
+    }
+  }
 }
 </style>

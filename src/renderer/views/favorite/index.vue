@@ -54,16 +54,16 @@
         <div v-if="favoriteList.length === 0" class="empty-tip">
           <n-empty :description="t('favorite.emptyTip')" />
         </div>
-        <div v-else class="favorite-list">
+        <div v-else class="favorite-list" :class="{ 'max-w-[400px]': isComponent }">
           <song-item
             v-for="(song, index) in favoriteSongs"
             :key="song.id"
             :item="song"
-            :favorite="!isComponent"
+            :favorite="false"
             :class="setAnimationClass('animate__bounceInLeft')"
             :style="getItemAnimationDelay(index)"
             :selectable="isSelecting"
-            :selected="selectedSongs.includes(song.id)"
+            :selected="selectedSongs.includes(song.id as number)"
             @play="handlePlay"
             @select="handleSelect"
           />
@@ -88,18 +88,19 @@ import { useMessage } from 'naive-ui';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { useStore } from 'vuex';
 
 import { getMusicDetail } from '@/api/music';
+import { getBilibiliProxyUrl, getBilibiliVideoDetail } from '@/api/bilibili';
 import SongItem from '@/components/common/SongItem.vue';
 import { getSongUrl } from '@/hooks/MusicListHook';
+import { usePlayerStore } from '@/store';
 import type { SongResult } from '@/type/music';
 import { isElectron, setAnimationClass, setAnimationDelay } from '@/utils';
 
 const { t } = useI18n();
-const store = useStore();
+const playerStore = usePlayerStore();
 const message = useMessage();
-const favoriteList = computed(() => store.state.favoriteList);
+const favoriteList = computed(() => playerStore.favoriteList);
 const favoriteSongs = ref<SongResult[]>([]);
 const loading = ref(false);
 const noMore = ref(false);
@@ -193,11 +194,18 @@ const handleBatchDownload = async () => {
         failCount++;
         return;
       }
-
+      const songData = cloneDeep(song);
+      const songInfo = {
+        ...songData,
+        ar: songData.ar || songData.song?.artists,
+        downloadTime: Date.now()
+      };
+      console.log('songInfo', songInfo);
+      console.log('song', song);
       window.electron.ipcRenderer.send('download-music', {
         url,
         filename: `${song.name} - ${(song.ar || song.song?.artists)?.map((a) => a.name).join(',')}`,
-        songInfo: cloneDeep(song),
+        songInfo,
         type
       });
     });
@@ -210,7 +218,7 @@ const handleBatchDownload = async () => {
 };
 
 // 无限滚动相关
-const pageSize = 16;
+const pageSize = 100;
 const currentPage = ref(1);
 
 const props = defineProps({
@@ -224,6 +232,7 @@ const props = defineProps({
 const getCurrentPageIds = () => {
   const startIndex = (currentPage.value - 1) * pageSize;
   const endIndex = startIndex + pageSize;
+  // 返回原始ID，不进行类型转换
   return favoriteList.value.slice(startIndex, endIndex);
 };
 
@@ -241,23 +250,117 @@ const getFavoriteSongs = async () => {
   loading.value = true;
   try {
     const currentIds = getCurrentPageIds();
-    const res = await getMusicDetail(currentIds);
-    if (res.data.songs) {
-      const newSongs = res.data.songs.map((song: SongResult) => ({
-        ...song,
-        picUrl: song.al?.picUrl || ''
-      }));
-
-      // 追加新数据而不是替换
-      if (currentPage.value === 1) {
-        favoriteSongs.value = newSongs;
-      } else {
-        favoriteSongs.value = [...favoriteSongs.value, ...newSongs];
+    console.log('currentIds', currentIds);
+    
+    // 分离网易云音乐ID和B站视频ID
+    const musicIds = currentIds.filter((id) => typeof id === 'number') as number[];
+    // B站ID可能是字符串格式（包含"--"）或特定数字ID，如113911642789603
+    const bilibiliIds = currentIds.filter((id) => typeof id === 'string');
+    
+    console.log('处理数据:', {
+      musicIds,
+      bilibiliIds
+    });
+    
+    // 处理网易云音乐数据
+    let neteaseSongs: SongResult[] = [];
+    if (musicIds.length > 0) {
+      const res = await getMusicDetail(musicIds);
+      if (res.data.songs) {
+        neteaseSongs = res.data.songs.map((song: SongResult) => ({
+          ...song,
+          picUrl: song.al?.picUrl || '',
+          source: 'netease'
+        }));
       }
-
-      // 判断是否还有更多数据
-      noMore.value = favoriteSongs.value.length >= favoriteList.value.length;
     }
+    
+    // 处理B站视频数据
+    const bilibiliSongs: SongResult[] = [];
+    for (const biliId of bilibiliIds) {
+      const strBiliId = String(biliId);
+      console.log(`处理B站ID: ${strBiliId}`);
+      
+      if (strBiliId.includes('--')) {
+        // 从ID中提取B站视频信息 (bvid--pid--cid格式)
+        try {
+          const [bvid, pid, cid] = strBiliId.split('--');
+          if (!bvid || !pid || !cid) {
+            console.warn(`B站ID格式错误: ${strBiliId}, 正确格式应为 bvid--pid--cid`);
+            continue;
+          }
+          
+          const res = await getBilibiliVideoDetail(bvid);
+          const videoDetail = res.data;
+          
+          // 找到对应的分P
+          const page = videoDetail.pages.find(p => p.cid === Number(cid));
+          if (!page) {
+            console.warn(`未找到对应的分P: cid=${cid}`);
+            continue;
+          }
+          
+          const songData = {
+            id: strBiliId,
+            name: `${page.part || ''} - ${videoDetail.title}`,
+            picUrl: getBilibiliProxyUrl(videoDetail.pic),
+            ar: [
+              {
+                name: videoDetail.owner.name,
+                id: videoDetail.owner.mid
+              }
+            ],
+            al: {
+              name: videoDetail.title,
+              picUrl: getBilibiliProxyUrl(videoDetail.pic)
+            },
+            source: 'bilibili',
+            bilibiliData: {
+              bvid,
+              cid: Number(cid)
+            }
+          } as SongResult;
+          
+          bilibiliSongs.push(songData);
+        } catch (error) {
+          console.error(`获取B站视频详情失败 (${strBiliId}):`, error);
+        }
+      }
+    }
+    
+    console.log('获取数据统计:', {
+      neteaseSongs: neteaseSongs.length,
+      bilibiliSongs: bilibiliSongs.length
+    });
+    
+    // 合并数据，保持原有顺序
+    const newSongs = currentIds
+      .map(id => {
+        const strId = String(id);
+        
+        // 查找B站视频
+        if (typeof id === 'string') {
+          const found = bilibiliSongs.find(song => String(song.id) === strId);
+          if (found) return found;
+        }
+        
+        // 查找网易云音乐
+        const found = neteaseSongs.find(song => String(song.id) === strId);
+        return found;
+      })
+      .filter((song): song is SongResult => !!song);
+    
+    console.log(`最终歌曲列表: ${newSongs.length}首`);
+
+    // 追加新数据而不是替换
+    if (currentPage.value === 1) {
+      favoriteSongs.value = newSongs;
+    } else {
+      favoriteSongs.value = [...favoriteSongs.value, ...newSongs];
+    }
+
+    // 判断是否还有更多数据
+    noMore.value = favoriteSongs.value.length >= favoriteList.value.length;
   } catch (error) {
     console.error('获取收藏歌曲失败:', error);
   } finally {
@@ -277,7 +380,7 @@ const handleScroll = (e: any) => {
 };
 
 onMounted(async () => {
-  await store.dispatch('initializeFavoriteList');
+  await playerStore.initializeFavoriteList();
   await getFavoriteSongs();
 });
 
@@ -293,7 +396,7 @@ watch(
 );
 
 const handlePlay = () => {
-  store.commit('setPlayList', favoriteSongs.value);
+  playerStore.setPlayList(favoriteSongs.value);
 };
 
 const getItemAnimationDelay = (index: number) => {
@@ -319,7 +422,7 @@ const isIndeterminate = computed(() => {
 // 处理全选/取消全选
 const handleSelectAll = (checked: boolean) => {
   if (checked) {
-    selectedSongs.value = favoriteSongs.value.map((song) => song.id);
+    selectedSongs.value = favoriteSongs.value.map((song) => song.id as number);
   } else {
     selectedSongs.value = [];
   }

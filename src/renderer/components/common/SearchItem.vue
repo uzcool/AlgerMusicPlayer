@@ -1,5 +1,5 @@
 <template>
-  <div class="search-item" :class="[item.type, shape]" @click="handleClick">
+  <div class="search-item" :class="[shape, item.type]" @click="handleClick">
     <div class="search-item-img">
       <n-image
         class="w-full h-full"
@@ -40,11 +40,10 @@
 </template>
 
 <script setup lang="ts">
-import { useStore } from 'vuex';
-
 import { getAlbum, getListDetail } from '@/api/list';
 import MvPlayer from '@/components/MvPlayer.vue';
 import { audioService } from '@/services/audioService';
+import { usePlayerStore } from '@/store/modules/player';
 import { IMvItem } from '@/type/mv';
 import { getImgUrl } from '@/utils';
 
@@ -72,14 +71,14 @@ const songList = ref<any[]>([]);
 const showPop = ref(false);
 const listInfo = ref<any>(null);
 
+const playerStore = usePlayerStore();
+
 const getCurrentMv = () => {
   return {
     id: props.item.id,
     name: props.item.name
   } as unknown as IMvItem;
 };
-
-const store = useStore();
 
 const handleClick = async () => {
   listInfo.value = null;
@@ -108,11 +107,15 @@ const handleClick = async () => {
   }
 
   if (props.item.type === 'mv') {
-    store.commit('setIsPlay', false);
-    store.commit('setPlayMusic', false);
-    audioService.getCurrentSound()?.pause();
-    showPop.value = true;
+    handleShowMv();
   }
+};
+
+const handleShowMv = async () => {
+  playerStore.setIsPlay(false);
+  playerStore.setPlayMusic(false);
+  audioService.getCurrentSound()?.pause();
+  showPop.value = true;
 };
 </script>
 
@@ -168,15 +171,15 @@ const handleClick = async () => {
   }
 }
 
-.mv {
+.search-item.mv {
   &:hover {
     .play {
       @apply opacity-60;
     }
   }
   .search-item-img {
-    width: 160px;
-    height: 90px;
+    width: 160px !important;
+    height: 90px !important;
     @apply rounded-lg relative;
   }
   .play {

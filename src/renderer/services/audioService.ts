@@ -1,16 +1,7 @@
-import { Howl } from 'howler';
+import { Howl, Howler } from 'howler';
 
 import type { SongResult } from '@/type/music';
-
-interface Window {
-  webkitAudioContext: typeof AudioContext;
-}
-
-interface HowlSound {
-  node: HTMLMediaElement & {
-    audioSource?: MediaElementAudioSourceNode;
-  };
-}
+import { isElectron } from '@/utils'; // 导入isElectron常量
 
 class AudioService {
   private currentSound: Howl | null = null;
@@ -46,6 +37,15 @@ class AudioService {
 
   private retryCount = 0;
 
+  private seekLock = false;
+
+  private seekDebounceTimer: NodeJS.Timeout | null = null;
+
+  // 添加操作锁防止并发操作
+  private operationLock = false;
+  private operationLockTimer: NodeJS.Timeout | null = null;
+  private operationLockTimeout = 5000; // 5秒超时
+
   constructor() {
     if ('mediaSession' in navigator) {
       this.initMediaSession();
@@ -70,21 +70,22 @@ class AudioService {
 
     navigator.mediaSession.setActionHandler('seekto', (event) => {
       if (event.seekTime && this.currentSound) {
-        this.currentSound.seek(event.seekTime);
+        // this.currentSound.seek(event.seekTime);
+        this.seek(event.seekTime);
       }
     });
 
     navigator.mediaSession.setActionHandler('seekbackward', (event) => {
       if (this.currentSound) {
         const currentTime = this.currentSound.seek() as number;
-        this.currentSound.seek(currentTime - (event.seekOffset || 10));
+        this.seek(currentTime - (event.seekOffset || 10));
       }
     });
 
     navigator.mediaSession.setActionHandler('seekforward', (event) => {
       if (this.currentSound) {
         const currentTime = this.currentSound.seek() as number;
-        this.currentSound.seek(currentTime + (event.seekOffset || 10));
+        this.seek(currentTime + (event.seekOffset || 10));
       }
     });
 
@@ -246,7 +247,13 @@ class AudioService {
 
   private async setupEQ(sound: Howl) {
     try {
+      if (!isElectron) {
+        console.log('Web环境中跳过EQ设置，避免CORS问题');
+        this.bypass = true;
+        return;
+      }
       const howl = sound as any;
+      // eslint-disable-next-line no-underscore-dangle
       const audioNode = howl._sounds?.[0]?._node;
 
       if (!audioNode || !(audioNode instanceof HTMLMediaElement)) {
@@ -354,28 +361,83 @@ class AudioService {
     }
   }
 
+  // 设置操作锁，带超时自动释放
+  private setOperationLock(): boolean {
+    if (this.operationLock) {
+      return false;
+    }
+    
+    this.operationLock = true;
+    
+    // 清除之前的定时器
+    if (this.operationLockTimer) {
+      clearTimeout(this.operationLockTimer);
+    }
+    
+    // 设置超时自动释放锁
+    this.operationLockTimer = setTimeout(() => {
+      console.warn('操作锁超时自动释放');
+      this.operationLock = false;
+      this.operationLockTimer = null;
+    }, this.operationLockTimeout);
+    
+    return true;
+  }
+  
+  // 释放操作锁
+  private releaseOperationLock(): void {
+    this.operationLock = false;
+    
+    if (this.operationLockTimer) {
+      clearTimeout(this.operationLockTimer);
+      this.operationLockTimer = null;
+    }
+  }
+
   // 播放控制相关
-  play(url?: string, track?: SongResult): Promise<Howl> {
+  play(url?: string, track?: SongResult, isPlay: boolean = true): Promise<Howl> {
+    // 如果操作锁已激活，说明有操作正在进行中，直接返回
+    if (!this.setOperationLock()) {
+      console.log('audioService: 操作锁激活，忽略当前播放请求');
+      return Promise.reject(new Error('操作锁激活，请等待当前操作完成'));
+    }
+
     // 如果没有提供新的 URL 和 track，且当前有音频实例，则继续播放
     if (this.currentSound && !url && !track) {
+      // 如果有进行中的seek操作，等待其完成
+      if (this.seekLock && this.seekDebounceTimer) {
+        clearTimeout(this.seekDebounceTimer);
+        this.seekLock = false;
+      }
       this.currentSound.play();
+      this.releaseOperationLock();
       return Promise.resolve(this.currentSound);
     }
 
     // 如果没有提供必要的参数，返回错误
     if (!url || !track) {
+      this.releaseOperationLock();
       return Promise.reject(new Error('Missing required parameters: url and track'));
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise<Howl>((resolve, reject) => {
       let retryCount = 0;
       const maxRetries = 1;
 
       const tryPlay = async () => {
         try {
+          console.log('audioService: 开始创建音频对象');
+
+          // 确保 Howler 上下文已初始化
+          if (!Howler.ctx) {
+            console.log('audioService: 初始化 Howler 上下文');
+            Howler.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          }
+
           // 确保使用同一个音频上下文
-          if (!Howler.ctx || Howler.ctx.state === 'closed') {
-            Howler.ctx = new AudioContext();
+          if (Howler.ctx.state === 'closed') {
+            console.log('audioService: 重新创建音频上下文');
+            Howler.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             this.context = Howler.ctx;
             Howler.masterGain = this.context.createGain();
             Howler.masterGain.connect(this.context.destination);
@@ -383,24 +445,33 @@ class AudioService {
 
           // 恢复上下文状态
           if (Howler.ctx.state === 'suspended') {
+            console.log('audioService: 恢复暂停的音频上下文');
             await Howler.ctx.resume();
           }
 
           // 先停止并清理现有的音频实例
           if (this.currentSound) {
+            console.log('audioService: 停止并清理现有的音频实例');
+            // 确保任何进行中的seek操作被取消
+            if (this.seekLock && this.seekDebounceTimer) {
+              clearTimeout(this.seekDebounceTimer);
+              this.seekLock = false;
+            }
             this.currentSound.stop();
             this.currentSound.unload();
             this.currentSound = null;
           }
 
           // 清理 EQ 但保持上下文
+          console.log('audioService: 清理 EQ');
           await this.disposeEQ(true);
 
           this.currentTrack = track;
+          console.log('audioService: 创建新的 Howl 对象');
           this.currentSound = new Howl({
             src: [url],
             html5: true,
-            autoplay: true,
+            autoplay: false, // 修改为 false，不自动播放，等待完全初始化后手动播放
             volume: localStorage.getItem('volume')
               ? parseFloat(localStorage.getItem('volume') as string)
               : 1,
@@ -412,6 +483,8 @@ class AudioService {
                 console.log(`Retrying playback (${retryCount}/${maxRetries})...`);
                 setTimeout(tryPlay, 1000 * retryCount);
               } else {
+                // 发送URL过期事件，通知外部需要重新获取URL
+                this.emit('url_expired', this.currentTrack);
                 reject(new Error('音频加载失败，请尝试切换其他歌曲'));
               }
             },
@@ -422,6 +495,8 @@ class AudioService {
                 console.log(`Retrying playback (${retryCount}/${maxRetries})...`);
                 setTimeout(tryPlay, 1000 * retryCount);
               } else {
+                // 发送URL过期事件，通知外部需要重新获取URL
+                this.emit('url_expired', this.currentTrack);
                 reject(new Error('音频播放失败，请尝试切换其他歌曲'));
               }
             },
@@ -429,14 +504,26 @@ class AudioService {
               // 音频加载成功后设置 EQ 和更新媒体会话
               if (this.currentSound) {
                 try {
+                  console.log('audioService: 音频加载成功，设置 EQ');
                   await this.setupEQ(this.currentSound);
                   this.updateMediaSessionMetadata(track);
                   this.updateMediaSessionPositionState();
                   this.emit('load');
+
+                  // 此时音频已完全初始化，根据 isPlay 参数决定是否播放
+                  console.log('audioService: 音频完全初始化，isPlay =', isPlay);
+                  if (isPlay) {
+                    console.log('audioService: 开始播放');
+                    this.currentSound.play();
+                  }
+
                   resolve(this.currentSound);
                 } catch (error) {
                   console.error('设置 EQ 失败:', error);
-                  // 即使 EQ 设置失败，也继续播放
+                  // 即使 EQ 设置失败，也继续播放（如果需要）
+                  if (isPlay) {
+                    this.currentSound.play();
+                  }
                   resolve(this.currentSound);
                 }
               }
@@ -466,11 +553,15 @@ class AudioService {
           }
         } catch (error) {
           console.error('Error creating audio instance:', error);
+          this.releaseOperationLock();
           reject(error);
         }
       };
 
       tryPlay();
+    }).finally(() => {
+      // 无论成功或失败都解除操作锁
+      this.releaseOperationLock();
     });
   }
 
@@ -483,8 +574,18 @@ class AudioService {
   }
 
   stop() {
+    if (!this.setOperationLock()) {
+      console.log('audioService: 操作锁激活，忽略当前停止请求');
+      return;
+    }
+    
     if (this.currentSound) {
       try {
+        // 确保任何进行中的seek操作被取消
+        if (this.seekLock && this.seekDebounceTimer) {
+          clearTimeout(this.seekDebounceTimer);
+          this.seekLock = false;
+        }
         this.currentSound.stop();
         this.currentSound.unload();
       } catch (error) {
@@ -492,11 +593,14 @@ class AudioService {
       }
       this.currentSound = null;
     }
+    
     this.currentTrack = null;
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = 'none';
     }
     this.disposeEQ();
+    
+    this.releaseOperationLock();
   }
 
   setVolume(volume: number) {
@@ -507,20 +611,46 @@ class AudioService {
   }
 
   seek(time: number) {
-    if (this.currentSound) {
-      this.currentSound.seek(time);
-      this.updateMediaSessionPositionState();
+    if (!this.setOperationLock()) {
+      console.log('audioService: 操作锁激活，忽略当前seek请求');
+      return;
     }
+    
+    if (this.currentSound) {
+      try {
+        // 直接执行seek操作，避免任何过滤或判断
+        this.currentSound.seek(time);
+        // 触发seek事件
+        this.updateMediaSessionPositionState();
+        this.emit('seek', time);
+      } catch (error) {
+        console.error('Seek操作失败:', error);
+      }
+    }
+    
+    this.releaseOperationLock();
   }
 
   pause() {
+    if (!this.setOperationLock()) {
+      console.log('audioService: 操作锁激活，忽略当前暂停请求');
+      return;
+    }
+    
     if (this.currentSound) {
       try {
+        // 如果有进行中的seek操作，等待其完成
+        if (this.seekLock && this.seekDebounceTimer) {
+          clearTimeout(this.seekDebounceTimer);
+          this.seekLock = false;
+        }
         this.currentSound.pause();
       } catch (error) {
         console.error('Error pausing audio:', error);
       }
     }
+    
+    this.releaseOperationLock();
   }
 
   clearAllListeners() {

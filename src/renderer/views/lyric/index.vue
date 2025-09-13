@@ -11,12 +11,12 @@
     <div class="control-bar" :class="{ 'control-bar-show': showControls }">
       <div class="font-size-controls">
         <n-button-group>
-          <n-button quaternary size="small" :disabled="fontSize <= 12" @click="decreaseFontSize">
+          <div class="control-button" @click="decreaseFontSize">
             <i class="ri-subtract-line"></i>
-          </n-button>
-          <n-button quaternary size="small" :disabled="fontSize >= 48" @click="increaseFontSize">
+          </div>
+          <div class="control-button" @click="increaseFontSize">
             <i class="ri-add-line"></i>
-          </n-button>
+          </div>
         </n-button-group>
         <div>{{ staticData.playMusic.name }}</div>
       </div>
@@ -59,7 +59,7 @@
               v-for="(line, index) in staticData.lrcArray"
               :key="index"
               class="lyric-line"
-              :style="lyricLineStyle"
+              :style="getDynamicLineStyle(line)"
               :class="{
                 'lyric-line-current': index === currentIndex,
                 'lyric-line-passed': index < currentIndex,
@@ -172,6 +172,16 @@ const handleMouseLeave = () => {
   if (!lyricSetting.value.isLock) return;
   isHovering.value = false;
   windowData.electron.ipcRenderer.send('set-ignore-mouse', false);
+  
+  // 强制重置背景色
+  const lyricWindow = document.querySelector('.lyric-window') as HTMLElement;
+  if (lyricWindow) {
+    lyricWindow.style.background = 'transparent';
+    // 使用 requestAnimationFrame 确保在下一帧重置
+    requestAnimationFrame(() => {
+      lyricWindow.style.background = 'transparent';
+    });
+  }
 };
 
 // 监听锁定状态变化
@@ -207,16 +217,41 @@ const wrapperStyle = computed(() => {
   // 计算容器中心点
   const containerCenter = containerHeight.value / 2;
 
-  // 计算当前行到顶部的距离（包含padding）
-  const currentLineTop =
-    currentIndex.value * lineHeight.value + containerHeight.value * 0.2 + lineHeight.value; // 加上顶部padding
+  // 计算每行的实际高度
+  const getLineHeight = (line: { text: string; trText: string }) => {
+    const baseHeight = lineHeight.value;
+    if (line.trText) {
+      const extraHeight = Math.round(fontSize.value * 0.6 * 1.4);
+      return baseHeight + extraHeight;
+    }
+    return baseHeight;
+  };
+
+  // 计算当前行之前所有行的累积高度
+  let accumulatedHeight = containerHeight.value * 0.2; // 顶部padding
+  for (let i = 0; i < currentIndex.value; i++) {
+    if (i < staticData.value.lrcArray.length) {
+      accumulatedHeight += getLineHeight(staticData.value.lrcArray[i]);
+    } else {
+      accumulatedHeight += lineHeight.value;
+    }
+  }
+
+  // 加上当前行的一半高度，使其居中
+  const currentLineHeight =
+    currentIndex.value < staticData.value.lrcArray.length
+      ? getLineHeight(staticData.value.lrcArray[currentIndex.value])
+      : lineHeight.value;
+  accumulatedHeight += currentLineHeight;
 
   // 计算偏移量，使当前行居中
-  const targetOffset = containerCenter - currentLineTop;
+  const targetOffset = containerCenter - accumulatedHeight;
 
   // 计算内容总高度（包含padding）
-  const contentHeight =
-    staticData.value.lrcArray.length * lineHeight.value + containerHeight.value * 0.4; // 上下padding各20vh
+  let contentHeight = containerHeight.value * 0.4; // 上下padding总和
+  for (const line of staticData.value.lrcArray) {
+    contentHeight += getLineHeight(line);
+  }
 
   // 计算最小和最大偏移量
   const minOffset = -(contentHeight - containerHeight.value);
@@ -231,9 +266,25 @@ const wrapperStyle = computed(() => {
   };
 });
 
-const lyricLineStyle = computed(() => ({
-  height: `${lineHeight.value}px`
-}));
+// 新增：根据是否有翻译文本动态计算每行的样式
+const getDynamicLineStyle = (line: { text: string; trText: string }) => {
+  // 默认行高
+  const defaultHeight = lineHeight.value;
+
+  // 如果有翻译文本，增加额外高度
+  if (line.trText) {
+    // 计算翻译文本的额外高度 (字体大小的0.6倍 * 行高比例1.4)
+    const extraHeight = Math.round(fontSize.value * 0.6 * 1.4);
+    return {
+      height: `${defaultHeight + extraHeight}px`
+    };
+  }
+
+  return {
+    height: `${defaultHeight}px`
+  };
+};
+
 // 更新容器高度和行高
 const updateContainerHeight = () => {
   if (!containerRef.value) return;
@@ -378,27 +429,46 @@ watch(
 
 // 修改数据更新处
 const handleDataUpdate = (parsedData: {
+  type?: string;
   nowTime: number;
   startCurrentTime: number;
   nextTime: number;
   isPlay: boolean;
   nowIndex: number;
-  lrcArray: Array<{ text: string; trText: string }>;
-  lrcTimeArray: number[];
-  allTime: number;
-  playMusic: SongResult;
+  lrcArray?: Array<{ text: string; trText: string }>;
+  lrcTimeArray?: number[];
+  allTime?: number;
+  playMusic?: SongResult;
 }) => {
   // 确保数据存在且格式正确
   if (!parsedData) {
     console.error('Invalid update data received:', parsedData);
     return;
   }
+
+  // 根据数据类型处理
+  if (parsedData.type === 'update') {
+    // 增量更新，只更新动态数据
+    dynamicData.value = {
+      ...dynamicData.value,
+      nowTime: parsedData.nowTime || dynamicData.value.nowTime,
+      isPlay: typeof parsedData.isPlay === 'boolean' ? parsedData.isPlay : dynamicData.value.isPlay
+    };
+
+    // 更新索引（如果提供）
+    if (typeof parsedData.nowIndex === 'number') {
+      currentIndex.value = parsedData.nowIndex;
+    }
+    return;
+  }
+
+  // 完整更新或空歌词提示
   // 更新静态数据
   staticData.value = {
     lrcArray: parsedData.lrcArray || [],
     lrcTimeArray: parsedData.lrcTimeArray || [],
     allTime: parsedData.allTime || 0,
-    playMusic: parsedData.playMusic || {}
+    playMusic: parsedData.playMusic || ({} as SongResult)
   };
 
   // 更新动态数据
@@ -472,9 +542,11 @@ watch(
   { deep: true }
 );
 
-// 添��拖动相关变量
+// 添加拖动相关变量
 const isDragging = ref(false);
 const startPosition = ref({ x: 0, y: 0 });
+const lastMoveTime = ref(0);
+const moveThrottleMs = 10; // 限制拖动事件发送频率，提高性能
 
 // 处理鼠标按下事件
 const handleMouseDown = (e: MouseEvent) => {
@@ -482,7 +554,8 @@ const handleMouseDown = (e: MouseEvent) => {
   if (
     lyricSetting.value.isLock ||
     (e.target as HTMLElement).closest('.control-buttons') ||
-    (e.target as HTMLElement).closest('.font-size-controls')
+    (e.target as HTMLElement).closest('.font-size-controls') ||
+    (e.target as HTMLElement).closest('.play-controls')
   ) {
     return;
   }
@@ -492,22 +565,37 @@ const handleMouseDown = (e: MouseEvent) => {
 
   isDragging.value = true;
   startPosition.value = { x: e.screenX, y: e.screenY };
+  lastMoveTime.value = performance.now();
+
+  // 发送拖动开始信号到主进程
+  windowData.electron.ipcRenderer.send('lyric-drag-start');
 
   // 添加全局鼠标事件监听
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging.value) return;
 
+    // 时间节流，避免过于频繁的更新
+    const now = performance.now();
+    if (now - lastMoveTime.value < moveThrottleMs) return;
+    lastMoveTime.value = now;
+
     const deltaX = e.screenX - startPosition.value.x;
     const deltaY = e.screenY - startPosition.value.y;
 
-    // 发送移动事件到主进程
-    windowData.electron.ipcRenderer.send('lyric-drag-move', { deltaX, deltaY });
-    startPosition.value = { x: e.screenX, y: e.screenY };
+    // 只有在实际移动时才发送事件
+    if (Math.abs(deltaX) > 0 || Math.abs(deltaY) > 0) {
+      // 发送移动事件到主进程
+      windowData.electron.ipcRenderer.send('lyric-drag-move', { deltaX, deltaY });
+      startPosition.value = { x: e.screenX, y: e.screenY };
+    }
   };
 
   const handleMouseUp = () => {
     if (!isDragging.value) return;
     isDragging.value = false;
+
+    // 发送拖动结束信号到主进程
+    windowData.electron.ipcRenderer.send('lyric-drag-end');
 
     // 移除事件监听
     document.removeEventListener('mousemove', handleMouseMove);
@@ -554,9 +642,13 @@ const handleNext = () => {
 };
 </script>
 
-<style>
-body {
+<style scoped>
+html,
+body,
+#app {
   background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 </style>
 
@@ -566,13 +658,13 @@ body {
   height: 100vh;
   position: relative;
   overflow: hidden;
-  background: transparent;
+  background: transparent !important;
   user-select: none;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.3s ease;
   cursor: default;
+  border-radius: 14px;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.5);
     .control-bar {
       &-show {
         opacity: 1;
@@ -587,16 +679,22 @@ body {
 
   &.dark {
     --text-color: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.6);
+    --text-secondary: #ffffffea;
     --highlight-color: #1db954;
     --control-bg: rgba(124, 124, 124, 0.3);
+    &:hover {
+      background: rgba(44, 44, 44, 0.466) !important;
+    }
   }
 
   &.light {
     --text-color: #333333;
-    --text-secondary: rgba(51, 51, 51, 0.6);
+    --text-secondary: #39393989;
     --highlight-color: #1db954;
     --control-bg: rgba(255, 255, 255, 0.3);
+    &:hover {
+      background: rgba(0, 0, 0, 0.434) !important;
+    }
   }
 }
 
@@ -731,16 +829,15 @@ body {
   color: var(--text-color);
   white-space: pre-wrap;
   word-break: break-all;
-  text-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
   transition: all 0.2s ease;
   line-height: 1.4;
+  -webkit-text-stroke: 0.5px #0000008a;
 }
 
 .lyric-translation {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
-  text-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
   transition: font-size 0.2s ease;
   line-height: 1.4; // 添加行高比例
 }
@@ -755,8 +852,6 @@ body {
 body {
   background-color: transparent !important;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
-    'Open Sans', 'Helvetica Neue', sans-serif;
 }
 
 .lyric-content {

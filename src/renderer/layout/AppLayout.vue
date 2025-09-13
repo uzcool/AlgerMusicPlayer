@@ -1,8 +1,8 @@
 <template>
   <div class="layout-page">
     <div id="layout-main" class="layout-main">
-      <title-bar v-if="isElectron" />
-      <div class="layout-main-page" :class="isElectron ? '' : 'pt-6'">
+      <title-bar />
+      <div class="layout-main-page">
         <!-- 侧边菜单栏 -->
         <app-menu v-if="!isMobile" class="menu" :menus="menus" />
         <div class="main">
@@ -21,38 +21,50 @@
             </router-view>
           </div>
           <play-bottom height="5rem" />
-          <app-menu v-if="isMobile && !store.state.musicFull" class="menu" :menus="menus" />
+          <app-menu v-if="isMobile && !playerStore.musicFull" class="menu" :menus="menus" />
         </div>
       </div>
       <!-- 底部音乐播放 -->
-      <play-bar v-show="isPlay" :style="isMobile && store.state.musicFull ? 'bottom: 0;' : ''" />
+      <template v-if="!settingsStore.isMiniMode">
+        <play-bar
+          v-if="!isMobile"
+          v-show="isPlay"
+          :style="playerStore.musicFull ? 'bottom: 0;' : ''"
+        />
+        <mobile-play-bar
+          v-else
+          v-show="isPlay"
+          :style="isMobile && playerStore.musicFull ? 'bottom: 0;' : ''"
+        />
+      </template>
       <!-- 下载管理抽屉 -->
       <download-drawer
         v-if="
           isElectron &&
-          (store.state.setData?.alwaysShowDownloadButton ||
-            store.state.showDownloadDrawer ||
-            store.state.hasDownloadingTasks)
+          (settingsStore.setData?.alwaysShowDownloadButton ||
+            settingsStore.showDownloadDrawer ||
+            settingsStore.setData?.hasDownloadingTasks)
         "
       />
     </div>
     <install-app-modal v-if="!isElectron"></install-app-modal>
     <update-modal v-if="isElectron" />
-    <artist-drawer ref="artistDrawerRef" :show="artistDrawerShow" />
     <playlist-drawer v-model="showPlaylistDrawer" :song-id="currentSongId" />
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, defineAsyncComponent, nextTick, onMounted, provide, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, provide, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { useStore } from 'vuex';
 
 import DownloadDrawer from '@/components/common/DownloadDrawer.vue';
 import InstallAppModal from '@/components/common/InstallAppModal.vue';
 import PlayBottom from '@/components/common/PlayBottom.vue';
 import UpdateModal from '@/components/common/UpdateModal.vue';
 import homeRouter from '@/router/home';
+import { useMenuStore } from '@/store/modules/menu';
+import { usePlayerStore } from '@/store/modules/player';
+import { useSettingsStore } from '@/store/modules/settings';
 import { isElectron, isMobile } from '@/utils';
 
 const keepAliveInclude = computed(() =>
@@ -66,42 +78,25 @@ const keepAliveInclude = computed(() =>
 );
 
 const AppMenu = defineAsyncComponent(() => import('./components/AppMenu.vue'));
-const PlayBar = defineAsyncComponent(() => import('./components/PlayBar.vue'));
+const PlayBar = defineAsyncComponent(() => import('@/components/player/PlayBar.vue'));
+const MobilePlayBar = defineAsyncComponent(() => import('@/components/player/MobilePlayBar.vue'));
 const SearchBar = defineAsyncComponent(() => import('./components/SearchBar.vue'));
 const TitleBar = defineAsyncComponent(() => import('./components/TitleBar.vue'));
 
-const ArtistDrawer = defineAsyncComponent(() => import('@/components/common/ArtistDrawer.vue'));
 const PlaylistDrawer = defineAsyncComponent(() => import('@/components/common/PlaylistDrawer.vue'));
 
-const store = useStore();
+const playerStore = usePlayerStore();
+const settingsStore = useSettingsStore();
+const menuStore = useMenuStore();
 
-const isPlay = computed(() => store.state.isPlay as boolean);
-const { menus } = store.state;
+const isPlay = computed(() => playerStore.playMusic && playerStore.playMusic.id);
+const { menus } = menuStore;
 const route = useRoute();
 
 onMounted(() => {
-  store.dispatch('initializeSettings');
-  store.dispatch('initializeTheme');
+  settingsStore.initializeSettings();
+  settingsStore.initializeTheme();
 });
-
-const artistDrawerRef = ref<InstanceType<typeof ArtistDrawer>>();
-const artistDrawerShow = computed({
-  get: () => store.state.showArtistDrawer,
-  set: (val) => store.commit('setShowArtistDrawer', val)
-});
-
-// 监听歌手ID变化
-watch(
-  () => store.state.currentArtistId,
-  (newId) => {
-    if (newId) {
-      artistDrawerShow.value = true;
-      nextTick(() => {
-        artistDrawerRef.value?.loadArtistInfo(newId);
-      });
-    }
-  }
-);
 
 const showPlaylistDrawer = ref(false);
 const currentSongId = ref<number | undefined>();
@@ -147,10 +142,11 @@ provide('openPlaylistDrawer', openPlaylistDrawer);
 
 .mobile {
   .main-content {
-    height: calc(100vh - 146px);
+    height: calc(100vh - 154px);
     overflow: auto;
     display: block;
     flex: none;
+    padding-bottom: 70px;
   }
 }
 </style>

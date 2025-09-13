@@ -1,7 +1,7 @@
 <template>
   <div class="settings-container">
     <!-- 左侧导航栏 -->
-    <div class="settings-nav">
+    <div v-if="!isMobile" class="settings-nav">
       <div
         v-for="section in settingSections"
         :key="section.id"
@@ -150,6 +150,39 @@
               />
             </div>
 
+            <div class="set-item" v-if="isElectron">
+              <div>
+                <div class="set-item-title">{{ t('settings.playback.musicSources') }}</div>
+                <div class="set-item-content">
+                  <div class="flex items-center gap-2">
+                    <n-switch v-model:value="setData.enableMusicUnblock">
+                      <template #checked>{{ t('common.on') }}</template>
+                      <template #unchecked>{{ t('common.off') }}</template>
+                    </n-switch>
+                    <span>{{ t('settings.playback.musicUnblockEnableDesc') }}</span>
+                  </div>
+                  <div v-if="setData.enableMusicUnblock" class="mt-2">
+                    <div class="text-sm">
+                      <span class="text-gray-500">{{ t('settings.playback.selectedMusicSources') }}</span>
+                      <span v-if="musicSources.length > 0" class="text-gray-400">
+                        {{ musicSources.join(', ') }}
+                      </span>
+                      <span v-else class="text-red-500 text-xs">
+                        {{ t('settings.playback.noMusicSources') }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <n-button 
+                size="small" 
+                :disabled="!setData.enableMusicUnblock"
+                @click="showMusicSourcesModal = true"
+              >
+                {{ t('settings.playback.configureMusicSources') }}
+              </n-button>
+            </div>
+
             <div class="set-item">
               <div>
                 <div class="set-item-title">{{ t('settings.playback.autoPlay') }}</div>
@@ -205,9 +238,22 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <n-button size="small" @click="store.commit('setShowDownloadDrawer', true)">
+                <n-button size="small" @click="settingsStore.showDownloadDrawer = true">
                   {{ t('settings.application.download') }}
                 </n-button>
+              </div>
+            </div>
+
+            <div class="set-item">
+              <div>
+                <div class="set-item-title">{{ t('settings.application.unlimitedDownload') }}</div>
+                <div class="set-item-content">
+                  <n-switch v-model:value="setData.unlimitedDownload" class="mr-2">
+                    <template #checked>{{ t('common.on') }}</template>
+                    <template #unchecked>{{ t('common.off') }}</template>
+                  </n-switch>
+                  {{ t('settings.application.unlimitedDownloadDesc') }}
+                </div>
               </div>
             </div>
 
@@ -224,6 +270,16 @@
                   t('common.modify')
                 }}</n-button>
               </div>
+            </div>
+
+            <div class="set-item">
+              <div>
+                <div class="set-item-title">{{ t('settings.application.remoteControl') }}</div>
+                <div class="set-item-content">{{ t('settings.application.remoteControlDesc') }}</div>
+              </div>
+              <n-button size="small" @click="showRemoteControlModal = true">{{
+                t('common.configure')
+              }}</n-button>
             </div>
           </div>
         </div>
@@ -372,100 +428,43 @@
       <play-bottom />
     </n-scrollbar>
 
-    <!-- 快捷键设置弹窗 -->
-    <shortcut-settings v-model:show="showShortcutModal" @change="handleShortcutsChange" />
+    <template v-if="isElectron">
+      <!-- 快捷键设置弹窗 -->
+      <shortcut-settings v-model:show="showShortcutModal" @change="handleShortcutsChange" />
 
-    <!-- 代理设置弹窗 -->
-    <n-modal
-      v-model:show="showProxyModal"
-      preset="dialog"
-      :title="t('settings.network.proxy')"
-      :positive-text="t('common.confirm')"
-      :negative-text="t('common.cancel')"
-      :show-icon="false"
-      @positive-click="handleProxyConfirm"
-      @negative-click="showProxyModal = false"
-    >
-      <n-form
-        ref="formRef"
-        :model="proxyForm"
-        :rules="proxyRules"
-        label-placement="left"
-        label-width="80"
-        require-mark-placement="right-hanging"
-      >
-        <n-form-item :label="t('settings.network.proxy')" path="protocol">
-          <n-select
-            v-model:value="proxyForm.protocol"
-            :options="[
-              { label: 'HTTP', value: 'http' },
-              { label: 'HTTPS', value: 'https' },
-              { label: 'SOCKS5', value: 'socks5' }
-            ]"
-          />
-        </n-form-item>
-        <n-form-item :label="t('settings.network.proxyHost')" path="host">
-          <n-input
-            v-model:value="proxyForm.host"
-            :placeholder="t('settings.network.proxyHostPlaceholder')"
-          />
-        </n-form-item>
-        <n-form-item :label="t('settings.network.proxyPort')" path="port">
-          <n-input-number
-            v-model:value="proxyForm.port"
-            :placeholder="t('settings.network.proxyPortPlaceholder')"
-            :min="1"
-            :max="65535"
-          />
-        </n-form-item>
-      </n-form>
-    </n-modal>
+      <!-- 代理设置弹窗 -->
+      <proxy-settings 
+        v-model:show="showProxyModal" 
+        :config="proxyForm"
+        @confirm="handleProxyConfirm"
+      />
+
+      <!-- 音源设置弹窗 -->
+      <music-source-settings
+        v-model:show="showMusicSourcesModal"
+        v-model:sources="musicSources"
+      />
+
+      <!-- 远程控制设置弹窗 -->
+      <remote-control-setting v-model:visible="showRemoteControlModal" />
+
+    </template>
+
     <!-- 清除缓存弹窗 -->
-    <n-modal
+    <clear-cache-settings
       v-model:show="showClearCacheModal"
-      preset="dialog"
-      :title="t('settings.system.cache')"
-      :positive-text="t('common.confirm')"
-      :negative-text="t('common.cancel')"
-      @positive-click="clearCache"
-      @negative-click="
-        () => {
-          selectedCacheTypes = [];
-        }
-      "
-    >
-      <n-space vertical>
-        <p>{{ t('settings.system.cacheClearTitle') }}</p>
-        <n-checkbox-group v-model:value="selectedCacheTypes">
-          <n-space vertical>
-            <n-checkbox
-              v-for="option in clearCacheOptions"
-              :key="option.key"
-              :value="option.key"
-              :label="option.label"
-            >
-              <template #default>
-                <div>
-                  <div>{{ t(`settings.system.cacheTypes.${option.key}.label`) }}</div>
-                  <div class="text-gray-400 text-sm">
-                    {{ t(`settings.system.cacheTypes.${option.key}.description`) }}
-                  </div>
-                </div>
-              </template>
-            </n-checkbox>
-          </n-space>
-        </n-checkbox-group>
-      </n-space>
-    </n-modal>
+      @confirm="clearCache"
+    />
+
+
   </div>
 </template>
 
 <script setup lang="ts">
-import type { FormRules } from 'naive-ui';
+import { useDebounceFn } from '@vueuse/core';
 import { useMessage } from 'naive-ui';
-import { computed, h, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
 import localData from '@/../main/set.json';
 import Coffee from '@/components/Coffee.vue';
@@ -473,13 +472,34 @@ import DonationList from '@/components/common/DonationList.vue';
 import PlayBottom from '@/components/common/PlayBottom.vue';
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue';
 import ShortcutSettings from '@/components/settings/ShortcutSettings.vue';
-import { isElectron } from '@/utils';
+import ProxySettings from '@/components/settings/ProxySettings.vue';
+import ClearCacheSettings from '@/components/settings/ClearCacheSettings.vue';
+import MusicSourceSettings from '@/components/settings/MusicSourceSettings.vue';
+import RemoteControlSetting from '@/components/settings/ServerSetting.vue';
+import { useSettingsStore } from '@/store/modules/settings';
+import { useUserStore } from '@/store/modules/user';
+import { isElectron, isMobile } from '@/utils';
 import { openDirectory, selectDirectory } from '@/utils/fileOperation';
 import { checkUpdate, UpdateResult } from '@/utils/update';
+import { type Platform } from '@/types/music';
 
 import config from '../../../../package.json';
 
-const store = useStore();
+// 所有平台默认值
+const ALL_PLATFORMS: Platform[] = ['migu', 'kugou', 'pyncmd', 'bilibili', 'youtube'];
+
+const settingsStore = useSettingsStore();
+const userStore = useUserStore();
+
+// 创建一个本地缓存的setData，避免频繁更新
+const localSetData = ref({ ...settingsStore.setData });
+
+// 在组件卸载时保存设置
+onUnmounted(() => {
+  // 确保最终设置被保存
+  settingsStore.setSetData(localSetData.value);
+});
+
 const checking = ref(false);
 const updateInfo = ref<UpdateResult>({
   hasUpdate: false,
@@ -490,35 +510,47 @@ const updateInfo = ref<UpdateResult>({
 
 const { t } = useI18n();
 
-const setData = computed(() => {
-  const data = store.state.setData;
-  // 确保代理配置存在
-  if (!data.proxyConfig) {
-    data.proxyConfig = {
-      enable: false,
-      protocol: 'http',
-      host: '127.0.0.1',
-      port: 7890
-    };
+// 创建一个防抖的保存函数
+// const debouncedSaveSettings = debounce((newData) => {
+//   settingsStore.setSetData(newData);
+// }, 500);
+
+const saveSettings = useDebounceFn((data) => {
+  settingsStore.setSetData(data);
+}, 500);
+
+// 使用计算属性来管理设置数据
+const setData = computed({
+  get: () => localSetData.value,
+  set: (newData) => {
+    localSetData.value = newData;
   }
-  // 确保音质设置存在
-  if (!data.musicQuality) {
-    data.musicQuality = 'higher';
-  }
-  return data;
 });
 
+// 监听localSetData变化，保存设置
 watch(
-  () => setData.value,
-  (newVal) => {
-    store.commit('setSetData', newVal);
+  () => localSetData.value,
+  (newValue) => {
+    saveSettings(newValue);
   },
   { deep: true }
 );
 
+// 监听store中setData的变化，同步到本地
+watch(
+  () => settingsStore.setData,
+  (newValue) => {
+    // 只在初始加载时更新本地数据，避免循环更新
+    if (JSON.stringify(localSetData.value) !== JSON.stringify(newValue)) {
+      localSetData.value = { ...newValue };
+    }
+  },
+  { deep: true, immediate: true }
+);
+
 const isDarkTheme = computed({
-  get: () => store.state.theme === 'dark',
-  set: () => store.commit('toggleTheme')
+  get: () => settingsStore.theme === 'dark',
+  set: () => settingsStore.toggleTheme()
 });
 
 const openAuthor = () => {
@@ -552,16 +584,16 @@ const checkForUpdates = async (isClick = false) => {
 };
 
 const openReleasePage = () => {
-  store.commit('setShowUpdateModal', true);
+  settingsStore.showUpdateModal = true;
 };
 
 const selectDownloadPath = async () => {
   const path = await selectDirectory(message);
   if (path) {
-    store.commit('setSetData', {
+    setData.value = {
       ...setData.value,
       downloadPath: path
-    });
+    };
   }
 };
 
@@ -570,43 +602,14 @@ const openDownloadPath = () => {
 };
 
 const showProxyModal = ref(false);
-const formRef = ref();
 const proxyForm = ref({
   protocol: 'http',
   host: '127.0.0.1',
   port: 7890
 });
 
-const proxyRules: FormRules = {
-  protocol: {
-    required: true,
-    message: t('settings.validation.selectProxyProtocol'),
-    trigger: ['blur', 'change']
-  },
-  host: {
-    required: true,
-    message: t('settings.validation.proxyHost'),
-    trigger: ['blur', 'change'],
-    validator: (_rule, value) => {
-      if (!value) return false;
-      // 简单的IP或域名验证
-      const ipRegex =
-        /^(\d{1,3}\.){3}\d{1,3}$|^localhost$|^[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$/;
-      return ipRegex.test(value);
-    }
-  },
-  port: {
-    required: true,
-    message: t('settings.validation.portNumber'),
-    trigger: ['blur', 'change'],
-    validator: (_rule, value) => {
-      return value >= 1 && value <= 65535;
-    }
-  }
-};
-
 // 使用 store 中的字体列表
-const systemFonts = computed(() => store.state.systemFonts);
+const systemFonts = computed(() => settingsStore.systemFonts);
 
 // 已选择的字体列表
 const selectedFonts = ref<string[]>([]);
@@ -622,17 +625,17 @@ watch(
   (newFonts) => {
     // 如果没有选择任何字体，使用系统默认字体
     if (newFonts.length === 0) {
-      store.commit('setSetData', {
+      setData.value = {
         ...setData.value,
         fontFamily: 'system-ui'
-      });
+      };
       return;
     }
     // 将选择的字体组合成字体列表
-    store.commit('setSetData', {
+    setData.value = {
       ...setData.value,
       fontFamily: newFonts.join(',')
-    });
+    };
   },
   { deep: true }
 );
@@ -660,10 +663,10 @@ onMounted(async () => {
   }
   // 确保enableRealIP有默认值
   if (setData.value.enableRealIP === undefined) {
-    store.commit('setSetData', {
+    setData.value = {
       ...setData.value,
       enableRealIP: false
-    });
+    };
   }
 });
 
@@ -682,43 +685,35 @@ watch(
   { immediate: true, deep: true }
 );
 
-const handleProxyConfirm = async () => {
-  try {
-    await formRef.value?.validate();
-    // 保存代理配置时保留enable状态
-    store.commit('setSetData', {
-      ...setData.value,
-      proxyConfig: {
-        enable: setData.value.proxyConfig?.enable || false,
-        protocol: proxyForm.value.protocol,
-        host: proxyForm.value.host,
-        port: proxyForm.value.port
-      }
-    });
-    showProxyModal.value = false;
-    message.success(t('settings.network.messages.proxySuccess'));
-  } catch (err) {
-    message.error(t('settings.network.messages.proxyError'));
-  }
+const handleProxyConfirm = async (proxyConfig) => {
+  // 保存代理配置时保留enable状态
+  setData.value = {
+    ...setData.value,
+    proxyConfig: {
+      enable: setData.value.proxyConfig?.enable || false,
+      ...proxyConfig
+    }
+  };
+  message.success(t('settings.network.messages.proxySuccess'));
 };
 
 const validateAndSaveRealIP = () => {
   const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
   if (!setData.value.realIP || ipRegex.test(setData.value.realIP)) {
-    store.commit('setSetData', {
+    setData.value = {
       ...setData.value,
       realIP: setData.value.realIP,
       enableRealIP: true
-    });
+    };
     if (setData.value.realIP) {
       message.success(t('settings.network.messages.realIPSuccess'));
     }
   } else {
     message.error(t('settings.network.messages.realIPError'));
-    store.commit('setSetData', {
+    setData.value = {
       ...setData.value,
       realIP: ''
-    });
+    };
   }
 };
 
@@ -727,11 +722,11 @@ watch(
   () => setData.value.enableRealIP,
   (newVal) => {
     if (!newVal) {
-      store.commit('setSetData', {
+      setData.value = {
         ...setData.value,
         realIP: '',
         enableRealIP: false
-      });
+      };
     }
   }
 );
@@ -745,48 +740,9 @@ const toggleDonationList = () => {
 
 // 清除缓存相关
 const showClearCacheModal = ref(false);
-const clearCacheOptions = ref([
-  {
-    label: t('settings.system.cacheTypes.history.label'),
-    key: 'history',
-    description: t('settings.system.cacheTypes.history.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.favorite.label'),
-    key: 'favorite',
-    description: t('settings.system.cacheTypes.favorite.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.user.label'),
-    key: 'user',
-    description: t('settings.system.cacheTypes.user.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.settings.label'),
-    key: 'settings',
-    description: t('settings.system.cacheTypes.settings.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.downloads.label'),
-    key: 'downloads',
-    description: t('settings.system.cacheTypes.downloads.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.resources.label'),
-    key: 'resources',
-    description: t('settings.system.cacheTypes.resources.description')
-  },
-  {
-    label: t('settings.system.cacheTypes.lyrics.label'),
-    key: 'lyrics',
-    description: t('settings.system.cacheTypes.lyrics.description')
-  }
-]);
 
-const selectedCacheTypes = ref<string[]>([]);
-
-const clearCache = async () => {
-  const clearTasks = selectedCacheTypes.value.map(async (type) => {
+const clearCache = async (selectedCacheTypes) => {
+  const clearTasks = selectedCacheTypes.map(async (type) => {
     switch (type) {
       case 'history':
         localStorage.removeItem('musicHistory');
@@ -795,7 +751,7 @@ const clearCache = async () => {
         localStorage.removeItem('favoriteList');
         break;
       case 'user':
-        store.commit('logout');
+        userStore.handleLogout();
         break;
       case 'settings':
         if (window.electron) {
@@ -845,8 +801,6 @@ const clearCache = async () => {
 
   await Promise.all(clearTasks);
   message.success(t('settings.system.messages.clearSuccess'));
-  showClearCacheModal.value = false;
-  selectedCacheTypes.value = [];
 };
 
 const showShortcutModal = ref(false);
@@ -939,6 +893,29 @@ onMounted(() => {
     handleScroll({ target: { scrollTop: 0 } });
   });
 });
+
+// 音源设置相关
+const musicSources = computed({
+  get: () => {
+    if (!setData.value.enabledMusicSources) {
+      return ALL_PLATFORMS;
+    }
+    return setData.value.enabledMusicSources as Platform[];
+  },
+  set: (newValue: Platform[]) => {
+    // 确保至少选择一个音源
+    const valuesToSet = newValue.length > 0 ? [...new Set(newValue)] : ALL_PLATFORMS;
+    setData.value = {
+      ...setData.value,
+      enabledMusicSources: valuesToSet
+    };
+  }
+});
+
+const showMusicSourcesModal = ref(false);
+
+// 远程控制设置弹窗
+const showRemoteControlModal = ref(false);
 </script>
 
 <style lang="scss" scoped>

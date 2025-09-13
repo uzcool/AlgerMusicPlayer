@@ -11,91 +11,113 @@
 </template>
 
 <script setup lang="ts">
+import { cloneDeep } from 'lodash';
 import { darkTheme, lightTheme } from 'naive-ui';
-import { computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, nextTick, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
 
 import homeRouter from '@/router/home';
-import globalStore from '@/store';
-import { isElectron } from '@/utils';
+import { useMenuStore } from '@/store/modules/menu';
+import { usePlayerStore } from '@/store/modules/player';
+import { useSettingsStore } from '@/store/modules/settings';
+import { isElectron, isLyricWindow } from '@/utils';
 
+import { initAudioListeners } from './hooks/MusicHook';
 import { isMobile } from './utils';
+import { useAppShortcuts } from './utils/appShortcuts';
 
 const { locale } = useI18n();
+const settingsStore = useSettingsStore();
+const menuStore = useMenuStore();
+const playerStore = usePlayerStore();
+const router = useRouter();
 
-const savedLanguage = isElectron
-  ? window.electron.ipcRenderer.sendSync('get-store-value', 'set.language')
-  : JSON.parse(localStorage.getItem('appSettings') || '{}').language || 'zh-CN';
-if (savedLanguage) {
-  locale.value = savedLanguage;
-}
-
-const theme = computed(() => {
-  return globalStore.state.theme;
-});
-
-// 监听字体变化并应用
+// 监听语言变化
 watch(
-  () => [globalStore.state.setData.fontFamily, globalStore.state.setData.fontScope],
-  ([newFont, fontScope]) => {
-    const appElement = document.body;
-    if (!appElement) return;
-
-    const defaultFonts =
-      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
-
-    // 只有在全局模式下才应用字体
-    if (fontScope !== 'global') {
-      appElement.style.fontFamily = defaultFonts;
-      return;
-    }
-
-    if (newFont === 'system-ui') {
-      appElement.style.fontFamily = defaultFonts;
-    } else {
-      // 处理多个字体，确保每个字体名都被正确引用
-      const fontList = newFont.split(',').map((font) => {
-        const trimmedFont = font.trim();
-        // 如果字体名包含空格或特殊字符，添加引号（如果还没有引号的话）
-        return /[\s'"()]/.test(trimmedFont) && !/^['"].*['"]$/.test(trimmedFont)
-          ? `"${trimmedFont}"`
-          : trimmedFont;
-      });
-
-      // 将选择的字体和默认字体组合
-      appElement.style.fontFamily = `${fontList.join(', ')}, ${defaultFonts}`;
+  () => settingsStore.setData.language,
+  (newLanguage) => {
+    if (newLanguage && newLanguage !== locale.value) {
+      locale.value = newLanguage;
     }
   },
   { immediate: true }
 );
 
-// 监听来自主进程的语言切换事件
-const handleSetLanguage = (_: any, value: string) => {
-  // 更新 i18n locale
-  locale.value = value;
-  // 通过 mutation 更新 store
-  globalStore.commit('setLanguage', value);
-};
-
-onMounted(() => {
-  globalStore.dispatch('initializeSettings');
-  globalStore.dispatch('initializeTheme');
-  globalStore.dispatch('initializeSystemFonts');
-  globalStore.dispatch('initializePlayState');
-  if (isMobile.value) {
-    globalStore.commit(
-      'setMenus',
-      homeRouter.filter((item) => item.meta.isMobile)
-    );
-  }
-  if (isElectron) {
-    window.electron.ipcRenderer.on('set-language', handleSetLanguage);
-  }
+const theme = computed(() => {
+  return settingsStore.theme;
 });
 
-onUnmounted(() => {
-  if (isElectron) {
-    window.electron.ipcRenderer.removeListener('set-language', handleSetLanguage);
+// 监听字体变化并应用
+watch(
+  () => [settingsStore.setData.fontFamily, settingsStore.setData.fontScope],
+  ([newFont, fontScope]) => {
+    const appElement = document.body;
+    if (newFont && fontScope === 'global') {
+      appElement.style.fontFamily = newFont;
+    } else {
+      appElement.style.fontFamily = '';
+    }
+  }
+);
+
+const handleSetLanguage = (value: string) => {
+  console.log('应用语言变更:', value);
+  if (value) {
+    locale.value = value;
+  }
+};
+
+if (!isLyricWindow.value) {
+  settingsStore.initializeSettings();
+  settingsStore.initializeTheme();
+  settingsStore.initializeSystemFonts();
+  if (isMobile.value) {
+    menuStore.setMenus(homeRouter.filter((item) => item.meta.isMobile));
+  }
+}
+
+handleSetLanguage(settingsStore.setData.language);
+
+// 监听迷你模式状态
+if (isElectron) {
+  window.api.onLanguageChanged(handleSetLanguage);
+  window.electron.ipcRenderer.on('mini-mode', (_, value) => {
+    settingsStore.setMiniMode(value);
+    if (value) {
+      // 存储当前路由
+      localStorage.setItem('currentRoute', router.currentRoute.value.path);
+      router.push('/mini');
+    } else {
+      // 恢复当前路由
+      const currentRoute = localStorage.getItem('currentRoute');
+      if (currentRoute) {
+        router.push(currentRoute);
+        localStorage.removeItem('currentRoute');
+      } else {
+        router.push('/');
+      }
+    }
+  });
+}
+
+// 使用应用内快捷键
+useAppShortcuts();
+
+onMounted(async () => {
+  if (isLyricWindow.value) {
+    return;
+  }
+  // 先初始化播放状态
+  await playerStore.initializePlayState();
+  // 如果有正在播放的音乐，则初始化音频监听器
+  if (playerStore.playMusic && playerStore.playMusic.id) {
+    // 使用 nextTick 确保 DOM 更新后再初始化
+    await nextTick();
+    initAudioListeners();
+    if (isElectron) {
+      window.api.sendSong(cloneDeep(playerStore.playMusic));
+    }
   }
 });
 </script>

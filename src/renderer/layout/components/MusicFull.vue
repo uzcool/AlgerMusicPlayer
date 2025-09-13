@@ -11,7 +11,7 @@
       <div
         class="control-btn absolute top-8 left-8"
         :class="{ 'pure-mode': config.pureModeEnabled }"
-        @click="isVisible = false"
+        @click="closeMusicFull"
       >
         <i class="ri-arrow-down-s-line"></i>
       </div>
@@ -29,8 +29,9 @@
       </n-popover>
 
       <div
-        v-show="!config.hideCover"
+        v-if="!config.hideCover"
         class="music-img"
+        :class="{ 'only-cover': config.hideLyrics }"
         :style="{ color: textColors.theme === 'dark' ? '#000000' : '#ffffff' }"
       >
         <n-image
@@ -40,7 +41,7 @@
           lazy
           preview-disabled
         />
-        <div>
+        <div class="music-info">
           <div class="music-content-name">{{ playMusic.name }}</div>
           <div class="music-content-singer">
             <n-ellipsis
@@ -62,15 +63,28 @@
               </span>
             </n-ellipsis>
           </div>
+          <mini-play-bar
+            v-if="!config.hideMiniPlayBar"
+            class="mt-4"
+            :pure-mode-enabled="config.pureModeEnabled"
+            component
+          />
         </div>
       </div>
-      <div class="music-content" :class="{ center: config.centerLyrics && config.hideCover }">
+
+      <div
+        class="music-content"
+        :class="{
+          center: config.centerLyrics,
+          hide: config.hideLyrics
+        }"
+      >
         <n-layout
           ref="lrcSider"
           class="music-lrc"
           :style="{
             height: config.hidePlayBar ? '85vh' : '65vh',
-            width: config.hideCover ? '50vw' : '500px'
+            width: isMobile ? '100vw' : config.hideCover ? '50vw' : '500px'
           }"
           :native-scrollbar="false"
           @mouseover="mouseOverLayout"
@@ -112,7 +126,7 @@
             </div>
 
             <!-- 无歌词 -->
-            <div v-if="!lrcArray.length" class="music-lrc-text mt-40">
+            <div v-if="!lrcArray.length" class="music-lrc-text">
               <span>{{ t('player.lrc.noLrc') }}</span>
             </div>
           </div>
@@ -131,9 +145,9 @@
 import { useDebounceFn } from '@vueuse/core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
 import LyricSettings from '@/components/lyric/LyricSettings.vue';
+import MiniPlayBar from '@/components/player/MiniPlayBar.vue';
 import {
   artistList,
   lrcArray,
@@ -143,6 +157,10 @@ import {
   textColors,
   useLyricProgress
 } from '@/hooks/MusicHook';
+import { useArtist } from '@/hooks/useArtist';
+import { usePlayerStore } from '@/store/modules/player';
+import { useSettingsStore } from '@/store/modules/settings';
+import { DEFAULT_LYRIC_CONFIG, LyricConfig } from '@/types/lyric';
 import { getImgUrl, isMobile } from '@/utils';
 import { animateGradient, getHoverBackgroundColor, getTextColors } from '@/utils/linearColor';
 
@@ -157,30 +175,8 @@ const isDark = ref(false);
 const showStickyHeader = ref(false);
 const lyricSettingsRef = ref<InstanceType<typeof LyricSettings>>();
 
-interface LyricConfig {
-  hideCover: boolean;
-  centerLyrics: boolean;
-  fontSize: number;
-  letterSpacing: number;
-  lineHeight: number;
-  showTranslation: boolean;
-  theme: 'default' | 'light' | 'dark';
-  hidePlayBar: boolean;
-  pureModeEnabled: boolean;
-}
-
 // 移除 computed 配置
-const config = ref<LyricConfig>({
-  hideCover: false,
-  centerLyrics: false,
-  fontSize: 22,
-  letterSpacing: 0,
-  lineHeight: 1.5,
-  showTranslation: true,
-  theme: 'default',
-  hidePlayBar: false,
-  pureModeEnabled: false
-});
+const config = ref<LyricConfig>({ ...DEFAULT_LYRIC_CONFIG });
 
 // 监听设置组件的配置变化
 watch(
@@ -372,13 +368,16 @@ onBeforeUnmount(() => {
   }
 });
 
-const store = useStore();
+const settingsStore = useSettingsStore();
+
+const { navigateToArtist } = useArtist();
+
 const handleArtistClick = (id: number) => {
   isVisible.value = false;
-  store.commit('setCurrentArtistId', id);
+  navigateToArtist(id);
 };
 
-const setData = computed(() => store.state.setData);
+const setData = computed(() => settingsStore.setData);
 
 // 监听字体变化并更新 CSS 变量
 watch(
@@ -429,6 +428,13 @@ const handleScroll = () => {
   if (!lrcSider.value || !config.value.hideCover) return;
   const { scrollTop } = lrcSider.value.$el;
   showStickyHeader.value = scrollTop > 100;
+};
+
+const playerStore = usePlayerStore();
+
+const closeMusicFull = () => {
+  isVisible.value = false;
+  playerStore.setMusicFull(false);
 };
 
 // 添加滚动监听
@@ -533,20 +539,61 @@ defineExpose({
   animation-duration: 300ms;
 
   .music-img {
-    @apply flex-1 flex justify-center mr-16 flex-col;
+    @apply flex-1 flex justify-center mr-16 flex-col items-center;
     max-width: 360px;
     max-height: 360px;
+    transition: all 0.3s ease;
+
+    &.only-cover {
+      @apply mr-0 flex-initial;
+      max-width: none;
+      max-height: none;
+
+      .img {
+        @apply w-[50vh] h-[50vh] mb-8;
+      }
+
+      .music-info {
+        @apply text-center w-[600px];
+
+        .music-content-name {
+          @apply text-4xl mb-4;
+          color: var(--text-color-active);
+        }
+
+        .music-content-singer {
+          @apply text-xl mb-8 opacity-80;
+          color: var(--text-color-primary);
+        }
+      }
+    }
+
     .img {
-      @apply rounded-xl w-full h-full shadow-2xl;
+      @apply rounded-xl w-full h-full shadow-2xl transition-all duration-300;
+    }
+
+    .music-info {
+      @apply w-full mt-4;
+
+      .music-content-name {
+        @apply text-2xl font-bold;
+        color: var(--text-color-active);
+      }
+
+      .music-content-singer {
+        @apply text-base mt-2 opacity-80;
+        color: var(--text-color-primary);
+      }
     }
   }
 
   .music-content {
     @apply flex flex-col justify-center items-center relative;
     width: 500px;
+    transition: all 0.3s ease;
 
     &.center {
-      @apply w-full;
+      @apply w-auto;
       .music-lrc {
         @apply w-full max-w-3xl mx-auto;
       }
@@ -555,12 +602,8 @@ defineExpose({
       }
     }
 
-    &-name {
-      @apply font-bold text-2xl pb-1 pt-4;
-    }
-
-    &-singer {
-      @apply text-base;
+    &.hide {
+      @apply hidden;
     }
   }
 
@@ -647,12 +690,18 @@ defineExpose({
       span {
         padding-right: 0px !important;
       }
-    }
-    .music-lrc-text {
-      @apply text-xl text-center;
+      .hover-text {
+        &:hover {
+          background-color: transparent;
+        }
+      }
+      .music-lrc-text {
+        @apply text-xl text-center;
+      }
     }
     .music-content {
       @apply h-[calc(100vh-120px)];
+      width: 100vw !important;
     }
   }
 }
@@ -663,8 +712,9 @@ defineExpose({
 
 // 添加全局字体样式
 :root {
-  --current-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  --current-font-family:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
 }
 
 #drawer-target {
@@ -686,7 +736,7 @@ defineExpose({
 }
 
 .control-btn {
-  @apply w-9 h-9 flex items-center justify-center rounded cursor-pointer transition-all duration-300;
+  @apply w-9 h-9 flex items-center justify-center rounded cursor-pointer transition-all duration-300 z-[9999];
   background: rgba(142, 142, 142, 0.192);
   backdrop-filter: blur(12px);
 

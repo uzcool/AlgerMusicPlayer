@@ -1,6 +1,7 @@
+import { useWindowSize } from '@vueuse/core';
 import { computed } from 'vue';
 
-import store from '@/store';
+import { useSettingsStore } from '@/store/modules/settings';
 
 // 设置歌手背景图片
 export const setBackgroundImg = (url: String) => {
@@ -8,10 +9,11 @@ export const setBackgroundImg = (url: String) => {
 };
 // 设置动画类型
 export const setAnimationClass = (type: String) => {
-  if (store.state.setData && store.state.setData.noAnimate) {
+  const settingsStore = useSettingsStore();
+  if (settingsStore.setData && settingsStore.setData.noAnimate) {
     return '';
   }
-  const speed = store.state.setData?.animationSpeed || 1;
+  const speed = settingsStore.setData?.animationSpeed || 1;
 
   let speedClass = '';
   if (speed <= 0.3) speedClass = 'animate__slower';
@@ -23,10 +25,11 @@ export const setAnimationClass = (type: String) => {
 };
 // 设置动画延时
 export const setAnimationDelay = (index: number = 6, time: number = 50) => {
-  if (store.state.setData?.noAnimate) {
+  const settingsStore = useSettingsStore();
+  if (settingsStore.setData?.noAnimate) {
     return '';
   }
-  const speed = store.state.setData?.animationSpeed || 1;
+  const speed = settingsStore.setData?.animationSpeed || 1;
   return `animation-delay:${(index * time) / (speed * 2)}ms`;
 };
 
@@ -71,15 +74,41 @@ export const getImgUrl = (url: string | undefined, size: string = '') => {
 };
 
 export const isMobile = computed(() => {
-  const flag = navigator.userAgent.match(
+  const { width } = useWindowSize();
+  const userAgentFlag = navigator.userAgent.match(
     /(phone|pad|pod|iPhone|iPod|ios|iPad|Android|Mobile|BlackBerry|IEMobile|MQQBrowser|JUC|Fennec|wOSBrowser|BrowserNG|WebOS|Symbian|Windows Phone)/i
   );
 
-  store.state.isMobile = !!flag;
+  const isMobileWidth = width.value < 500;
+  const isMobileDevice = !!userAgentFlag || isMobileWidth;
 
-  // 给html标签 添加mobile
-  if (flag) document.documentElement.classList.add('mobile');
-  return !!flag;
+  const settingsStore = useSettingsStore();
+  settingsStore.isMobile = isMobileDevice;
+
+  // 给html标签 添加或移除mobile类
+  if (isMobileDevice) {
+    document.documentElement.classList.add('mobile');
+  } else {
+    document.documentElement.classList.add('pc');
+    document.documentElement.classList.remove('mobile');
+  }
+
+  return isMobileDevice;
 });
 
 export const isElectron = (window as any).electron !== undefined;
+
+export const isLyricWindow = computed(() => {
+  return window.location.hash.includes('lyric');
+});
+
+export const getSetData = (): any => {
+  let setData = null;
+  if (window.electron) {
+    setData = window.electron.ipcRenderer.sendSync('get-store-value', 'set');
+  } else {
+    const settingsStore = useSettingsStore();
+    setData = settingsStore.setData;
+  }
+  return setData;
+};

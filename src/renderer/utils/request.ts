@@ -1,16 +1,11 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
 
-import store from '@/store';
+import { useUserStore } from '@/store/modules/user';
 
-import { isElectron } from '.';
+import { getSetData, isElectron } from '.';
 
 let setData: any = null;
-const getSetData = () => {
-  if (window.electron) {
-    setData = window.electron.ipcRenderer.sendSync('get-store-value', 'set');
-  }
-};
-getSetData();
+
 // 扩展请求配置接口
 interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
   retryCount?: number;
@@ -22,7 +17,8 @@ const baseURL = window.electron
 
 const request = axios.create({
   baseURL,
-  timeout: 5000
+  timeout: 5000,
+  withCredentials: true
 });
 
 // 最大重试次数
@@ -33,7 +29,10 @@ const RETRY_DELAY = 500;
 // 请求拦截器
 request.interceptors.request.use(
   (config: CustomAxiosRequestConfig) => {
-    getSetData();
+    setData = getSetData();
+    config.baseURL = window.electron
+      ? `http://127.0.0.1:${setData?.musicApiPort}`
+      : import.meta.env.VITE_API;
     // 只在retryCount未定义时初始化为0
     if (config.retryCount === undefined) {
       config.retryCount = 0;
@@ -46,8 +45,13 @@ request.interceptors.request.use(
       timestamp: Date.now()
     };
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && config.method !== 'post') {
       config.params.cookie = config.params.cookie !== undefined ? config.params.cookie : token;
+    } else if (token && config.method === 'post') {
+      config.data = {
+        ...config.data,
+        cookie: token
+      };
     }
     if (isElectron) {
       const proxyConfig = setData?.proxyConfig;
@@ -75,7 +79,7 @@ request.interceptors.response.use(
     return response;
   },
   async (error) => {
-    console.log('error', error);
+    console.error('error', error);
     const config = error.config as CustomAxiosRequestConfig;
 
     // 如果没有配置，直接返回错误
@@ -84,9 +88,10 @@ request.interceptors.response.use(
     }
 
     // 处理 301 状态码
-    if (error.response?.status === 301) {
+    if (error.response?.status === 301 && config.params.noLogin !== true) {
       // 使用 store mutation 清除用户信息
-      store.commit('logout');
+      const userStore = useUserStore();
+      userStore.handleLogout();
       console.log(`301 状态码，清除登录信息后重试第 ${config.retryCount} 次`);
       config.retryCount = 3;
     }
@@ -98,7 +103,7 @@ request.interceptors.response.use(
       !NO_RETRY_URLS.includes(config.url as string)
     ) {
       config.retryCount++;
-      console.log(`请求重试第 ${config.retryCount} 次`);
+      console.error(`请求重试第 ${config.retryCount} 次`);
 
       // 延迟重试
       await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
@@ -107,7 +112,7 @@ request.interceptors.response.use(
       return request(config);
     }
 
-    console.log(`重试${MAX_RETRIES}次后仍然失败`);
+    console.error(`重试${MAX_RETRIES}次后仍然失败`);
     return Promise.reject(error);
   }
 );

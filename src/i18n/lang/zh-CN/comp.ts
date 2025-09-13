@@ -38,7 +38,17 @@ export default {
     nowUpdate: '立即更新',
     downloadFailed: '下载失败，请重试或手动下载',
     startFailed: '启动下载失败，请重试或手动下载',
-    noDownloadUrl: '未找到适合当前系统的安装包，请手动下载'
+    noDownloadUrl: '未找到适合当前系统的安装包，请手动下载',
+    installConfirmTitle: '安装更新',
+    installConfirmContent: '是否关闭应用并安装更新？',
+    manualInstallTip: '如果关闭应用后没有正常弹出安装程序，请至下载文件夹查找文件并手动打开。',
+    yesInstall: '立即安装',
+    noThanks: '稍后安装',
+    fileLocation: '文件位置',
+    copy: '复制路径',
+    copySuccess: '路径已复制到剪贴板',
+    copyFailed: '复制失败',
+    backgroundDownload: '后台下载'
   },
   coffee: {
     title: '请我喝咖啡',
@@ -51,7 +61,8 @@ export default {
     qqGroup: 'QQ群：789288579',
     messages: {
       copySuccess: '已复制到剪贴板'
-    }
+    },
+    donateList: '请我喝咖啡'
   },
   playlistType: {
     title: '歌单分类',
@@ -83,6 +94,14 @@ export default {
     closeTitle: '请选择关闭方式',
     minimizeToTray: '最小化到托盘',
     exitApp: '退出应用',
-    rememberChoice: '记住我的选择'
+    rememberChoice: '记住我的选择',
+    closeApp: '关闭应用'
+  },
+  userPlayList: {
+    title: '{name}的常听'
+  },
+  musicList: {
+    searchSongs: '搜索歌曲',
+    noSearchResults: '没有找到相关歌曲'
   }
 };

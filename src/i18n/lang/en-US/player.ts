@@ -11,6 +11,7 @@ export default {
   mute: 'Mute',
   unmute: 'Unmute',
   songNum: 'Song Number: {num}',
+  playFailed: 'Play Failed, Play Next Song',
   playMode: {
     sequence: 'Sequence',
     loop: 'Loop',
@@ -33,6 +34,7 @@ export default {
     collapse: 'Collapse Lyrics',
     like: 'Like',
     lyric: 'Lyric',
+    noSongPlaying: 'No song playing',
     eq: 'Equalizer',
     playList: 'Play List',
     playMode: {
@@ -71,5 +73,27 @@ export default {
       acoustic: 'Acoustic',
       custom: 'Custom'
     }
+  },
+  // Sleep timer related
+  sleepTimer: {
+    title: 'Sleep Timer',
+    cancel: 'Cancel Timer',
+    timeMode: 'By Time',
+    songsMode: 'By Songs',
+    playlistEnd: 'After Playlist',
+    afterPlaylist: 'After Playlist Ends',
+    activeUntilEnd: 'Active until end of playlist',
+    minutes: 'min',
+    hours: 'hr',
+    songs: 'songs',
+    set: 'Set',
+    timerSetSuccess: 'Timer set for {minutes} minutes',
+    songsSetSuccess: 'Timer set for {songs} songs',
+    playlistEndSetSuccess: 'Timer set to end after playlist',
+    timerCancelled: 'Sleep timer cancelled',
+    timerEnded: 'Sleep timer ended',
+    playbackStopped: 'Music playback stopped',
+    minutesRemaining: '{minutes} min remaining',
+    songsRemaining: '{count} songs remaining'
   }
 };

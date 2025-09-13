@@ -8,8 +8,10 @@ import { loadLyricWindow } from './lyric';
 import { initializeConfig } from './modules/config';
 import { initializeFileManager } from './modules/fileManager';
 import { initializeFonts } from './modules/fonts';
+import { initializeRemoteControl } from './modules/remoteControl';
 import { initializeShortcuts, registerShortcuts } from './modules/shortcuts';
-import { initializeTray, updateTrayMenu } from './modules/tray';
+import { initializeStats, setupStatsHandlers } from './modules/statsService';
+import { initializeTray, updateCurrentSong, updatePlayState, updateTrayMenu } from './modules/tray';
 import { setupUpdateHandlers } from './modules/update';
 import { createMainWindow, initializeWindowManager } from './modules/window';
 import { startMusicApi } from './server';
@@ -19,9 +21,7 @@ const iconPath = join(__dirname, '../../resources');
 const icon = nativeImage.createFromPath(
   process.platform === 'darwin'
     ? join(iconPath, 'icon.icns')
-    : process.platform === 'win32'
-      ? join(iconPath, 'favicon.ico')
-      : join(iconPath, 'icon.png')
+    : join(iconPath, 'icon.png')
 );
 
 let mainWindow: Electron.BrowserWindow;
@@ -50,6 +50,12 @@ function initialize() {
   // 初始化托盘
   initializeTray(iconPath, mainWindow);
 
+  // 初始化统计服务
+  initializeStats();
+
+  // 设置统计相关的IPC处理程序
+  setupStatsHandlers(ipcMain);
+
   // 启动音乐API
   startMusicApi();
 
@@ -58,6 +64,9 @@ function initialize() {
 
   // 初始化快捷键
   initializeShortcuts(mainWindow);
+
+  // 初始化远程控制服务
+  initializeRemoteControl(mainWindow);
 
   // 初始化更新处理程序
   setupUpdateHandlers(mainWindow);
@@ -109,9 +118,19 @@ if (!isSingleInstance) {
     // 更新主进程的语言设置
     i18n.global.locale = locale;
     // 更新托盘菜单
-    updateTrayMenu();
+    updateTrayMenu(mainWindow);
     // 通知所有窗口语言已更改
     mainWindow?.webContents.send('language-changed', locale);
+  });
+
+  // 监听播放状态变化
+  ipcMain.on('update-play-state', (_, playing: boolean) => {
+    updatePlayState(playing);
+  });
+
+  // 监听当前歌曲变化
+  ipcMain.on('update-current-song', (_, song: any) => {
+    updateCurrentSong(song);
   });
 
   // 所有窗口关闭时的处理

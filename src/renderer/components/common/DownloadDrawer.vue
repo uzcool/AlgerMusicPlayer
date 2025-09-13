@@ -1,7 +1,7 @@
 <template>
   <div class="download-drawer-trigger">
     <n-badge :value="downloadingCount" :max="99" :show="downloadingCount > 0">
-      <n-button circle @click="store.commit('setShowDownloadDrawer', true)">
+      <n-button circle @click="settingsStore.showDownloadDrawer = true">
         <template #icon>
           <i class="iconfont ri-download-cloud-2-line"></i>
         </template>
@@ -90,10 +90,25 @@
           <!-- 已下载列表 -->
           <n-tab-pane name="downloaded" :tab="t('download.tabs.downloaded')" class="h-full">
             <div class="downloaded-list">
-              <div v-if="downloadedList.length === 0" class="empty-tip">
+              <div v-if="isLoadingDownloaded" class="loading-tip">
+                <n-spin size="medium" />
+                <span class="loading-text">{{ t('download.loading') }}</span>
+              </div>
+              <div v-else-if="downloadedList.length === 0" class="empty-tip">
                 <n-empty :description="t('download.empty.noDownloaded')" />
               </div>
               <div v-else class="downloaded-content">
+                <div class="downloaded-header">
+                  <div class="header-title">
+                    {{ t('download.count', { count: downloadedList.length }) }}
+                  </div>
+                  <n-button secondary size="small" @click="showClearConfirm = true">
+                    <template #icon>
+                      <i class="iconfont ri-delete-bin-line mr-1"></i>
+                    </template>
+                    {{ t('download.clearAll') }}
+                  </n-button>
+                </div>
                 <div class="downloaded-items">
                   <div v-for="item in downList" :key="item.path" class="downloaded-item">
                     <div class="downloaded-item-content">
@@ -172,18 +187,46 @@
       }}</n-button>
     </template>
   </n-modal>
+
+  <!-- 清空确认对话框 -->
+  <n-modal
+    v-model:show="showClearConfirm"
+    preset="dialog"
+    type="warning"
+    :title="t('download.clear.title')"
+  >
+    <template #header>
+      <div class="flex items-center">
+        <i class="iconfont ri-delete-bin-line mr-2 text-xl"></i>
+        <span>{{ t('download.clear.title') }}</span>
+      </div>
+    </template>
+    <div class="delete-confirm-content">
+      {{ t('download.clear.message') }}
+    </div>
+    <template #action>
+      <n-button size="small" @click="showClearConfirm = false">{{
+        t('download.clear.cancel')
+      }}</n-button>
+      <n-button size="small" type="warning" @click="clearDownloadRecords">{{
+        t('download.clear.confirm')
+      }}</n-button>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
 import type { ProgressStatus } from 'naive-ui';
 import { useMessage } from 'naive-ui';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useStore } from 'vuex';
 
 import { getMusicDetail } from '@/api/music';
+// import { usePlayerStore } from '@/store/modules/player';
+import { useSettingsStore } from '@/store/modules/settings';
 // import { audioService } from '@/services/audioService';
 import { getImgUrl } from '@/utils';
+// import { SongResult } from '@/type/music';
 
 const { t } = useI18n();
 
@@ -208,11 +251,14 @@ interface DownloadedItem {
 }
 
 const message = useMessage();
-const store = useStore();
+// const playerStore = usePlayerStore();
+const settingsStore = useSettingsStore();
 
 const showDrawer = computed({
-  get: () => store.state.showDownloadDrawer,
-  set: (val) => store.commit('setShowDownloadDrawer', val)
+  get: () => settingsStore.showDownloadDrawer,
+  set: (val) => {
+    settingsStore.showDownloadDrawer = val;
+  }
 });
 
 const downloadList = ref<DownloadItem[]>([]);
@@ -220,13 +266,7 @@ const downloadedList = ref<DownloadedItem[]>(
   JSON.parse(localStorage.getItem('downloadedList') || '[]')
 );
 
-const downList = computed(() => {
-  return (downloadedList.value as DownloadedItem[]).reverse();
-});
-
-// 获取播放状态
-// const play = computed(() => store.state.play as boolean);
-// const currentMusic = computed(() => store.state.playMusic);
+const downList = computed(() => downloadedList.value);
 
 // 计算下载中的任务数量
 const downloadingCount = computed(() => {
@@ -312,142 +352,115 @@ const handleDelete = (item: DownloadedItem) => {
 
 // 确认删除
 const confirmDelete = async () => {
-  if (!itemToDelete.value) return;
+  const item = itemToDelete.value;
+  if (!item) return;
 
   try {
     const success = await window.electron.ipcRenderer.invoke(
       'delete-downloaded-music',
-      itemToDelete.value.path
+      item.path
     );
+
     if (success) {
-      localStorage.setItem(
-        'downloadedList',
-        JSON.stringify(
-          downloadedList.value.filter(
-            (item) => item.id !== (itemToDelete.value as DownloadedItem).id
-          )
-        )
-      );
-      await refreshDownloadedList();
+      const newList = downloadedList.value.filter(i => i.id !== item.id);
+      downloadedList.value = newList;
+      localStorage.setItem('downloadedList', JSON.stringify(newList));
       message.success(t('download.delete.success'));
     } else {
-      message.error(t('download.delete.failed'));
+      message.warning(t('download.delete.fileNotFound'));
     }
   } catch (error) {
     console.error('Failed to delete music:', error);
-    message.error(t('download.delete.failed'));
+    message.warning(t('download.delete.recordRemoved'));
   } finally {
     showDeleteConfirm.value = false;
     itemToDelete.value = null;
   }
 };
 
-// 播放音乐
-// const handlePlayMusic = async (item: DownloadedItem) => {
-//   // 确保路径正确编码
-//   const encodedPath = encodeURIComponent(item.path);
-//   const localUrl = `local://${encodedPath}`;
+// 清空下载记录相关
+const showClearConfirm = ref(false);
 
-//   const musicInfo = {
-//     name: item.filename,
-//     id: item.id,
-//     url: localUrl,
-//     playMusicUrl: localUrl,
-//     picUrl: item.picUrl,
-//     ar: item.ar || [{ name: '本地音乐' }],
-//     song: {
-//       artists: item.ar || [{ name: '本地音乐' }]
-//     },
-//     al: {
-//       picUrl: item.picUrl || '/images/default_cover.png'
-//     }
-//   };
-
-//   // 如果是当前播放的音乐，则切换播放状态
-//   if (currentMusic.value?.id === item.id) {
-//     if (play.value) {
-//       audioService.getCurrentSound()?.pause();
-//       store.commit('setPlayMusic', false);
-//     } else {
-//       audioService.getCurrentSound()?.play();
-//       store.commit('setPlayMusic', true);
-//     }
-//     return;
-//   }
-
-//   // 播放新的音乐
-//   store.commit('setPlay', musicInfo);
-//   store.commit('setPlayMusic', true);
-//   store.commit('setIsPlay', true);
-
-//   store.commit(
-//     'setPlayList',
-//     downloadedList.value.map((item) => ({
-//       ...item,
-//       playMusicUrl: `local://${encodeURIComponent(item.path)}`
-//     }))
-//   );
-// };
-
-// 获取已下载音乐列表
-const refreshDownloadedList = async () => {
+// 清空下载记录
+const clearDownloadRecords = async () => {
   try {
-    let saveList: any = [];
-    const list = await window.electron.ipcRenderer.invoke('get-downloaded-music');
-    if (!Array.isArray(list) || list.length === 0) {
-      saveList = [];
-      return;
-    }
-
-    const songIds = list.filter((item) => item.id).map((item) => item.id);
-
-    // 如果有歌曲ID，获取详细信息
-    if (songIds.length > 0) {
-      try {
-        const detailRes = await getMusicDetail(songIds);
-        const songDetails = detailRes.data.songs.reduce((acc, song) => {
-          acc[song.id] = song;
-          return acc;
-        }, {});
-
-        saveList = list.map((item) => {
-          const songDetail = songDetails[item.id];
-          return {
-            ...item,
-            picUrl: songDetail?.al?.picUrl || item.picUrl || '/images/default_cover.png',
-            ar: songDetail?.ar || item.ar || [{ name: t('download.localMusic') }]
-          };
-        });
-      } catch (detailError) {
-        console.error('Failed to get music details:', detailError);
-        saveList = list;
-      }
-    } else {
-      saveList = list;
-    }
-    setLocalDownloadedList(saveList);
-  } catch (error) {
-    console.error('Failed to get downloaded music list:', error);
     downloadedList.value = [];
+    localStorage.setItem('downloadedList', '[]');
+    await window.electron.ipcRenderer.invoke('clear-downloaded-music');
+    message.success(t('download.clear.success'));
+  } catch (error) {
+    console.error('Failed to clear download records:', error);
+    message.error(t('download.clear.failed'));
+  } finally {
+    showClearConfirm.value = false;
   }
 };
 
-const setLocalDownloadedList = (list: DownloadedItem[]) => {
-  const localList = localStorage.getItem('downloadedList');
-  // 合并 去重
-  const saveList = [...(localList ? JSON.parse(localList) : []), ...list];
-  const uniqueList = saveList.filter(
-    (item, index, self) => index === self.findIndex((t) => t.id === item.id)
-  );
-  localStorage.setItem('downloadedList', JSON.stringify(uniqueList));
-  downloadedList.value = uniqueList;
+// 播放音乐
+// const handlePlay = async (musicInfo: SongResult) => {
+//   await playerStore.setPlay(musicInfo);
+//   playerStore.setPlayMusic(true);
+//   playerStore.setIsPlay(true);
+// };
+
+// 添加加载状态
+const isLoadingDownloaded = ref(false);
+
+// 获取已下载音乐列表
+const refreshDownloadedList = async () => {
+  if (isLoadingDownloaded.value) return; // 防止重复加载
+  
+  try {
+    isLoadingDownloaded.value = true;
+    const list = await window.electron.ipcRenderer.invoke('get-downloaded-music');
+    
+    if (!Array.isArray(list) || list.length === 0) {
+      downloadedList.value = [];
+      localStorage.setItem('downloadedList', '[]');
+      return;
+    }
+
+    const songIds = list.filter(item => item.id).map(item => item.id);
+    if (songIds.length === 0) {
+      downloadedList.value = list;
+      localStorage.setItem('downloadedList', JSON.stringify(list));
+      return;
+    }
+
+    try {
+      const detailRes = await getMusicDetail(songIds);
+      const songDetails = detailRes.data.songs.reduce((acc, song) => {
+        acc[song.id] = song;
+        return acc;
+      }, {});
+
+      const updatedList = list.map(item => ({
+        ...item,
+        picUrl: songDetails[item.id]?.al?.picUrl || item.picUrl || '/images/default_cover.png',
+        ar: songDetails[item.id]?.ar || item.ar || [{ name: t('download.localMusic') }]
+      }));
+
+      downloadedList.value = updatedList;
+      localStorage.setItem('downloadedList', JSON.stringify(updatedList));
+    } catch (error) {
+      console.error('Failed to get music details:', error);
+      downloadedList.value = list;
+      localStorage.setItem('downloadedList', JSON.stringify(list));
+    }
+  } catch (error) {
+    console.error('Failed to get downloaded music list:', error);
+    downloadedList.value = [];
+    localStorage.setItem('downloadedList', '[]');
+  } finally {
+    isLoadingDownloaded.value = false;
+  }
 };
 
 // 监听抽屉显示状态
 watch(
   () => showDrawer.value,
   (newVal) => {
-    if (newVal) {
+    if (newVal && !isLoadingDownloaded.value) {
       refreshDownloadedList();
     }
   }
@@ -460,6 +473,12 @@ onMounted(() => {
   // 监听下载进度
   window.electron.ipcRenderer.on('music-download-progress', (_, data) => {
     const existingItem = downloadList.value.find((item) => item.filename === data.filename);
+
+    // 如果进度为100%，将状态设置为已完成
+    if (data.progress === 100) {
+      data.status = 'completed';
+    }
+
     if (existingItem) {
       Object.assign(existingItem, {
         ...data,
@@ -479,15 +498,14 @@ onMounted(() => {
   });
 
   // 监听下载完成
-  window.electron.ipcRenderer.on('music-download-complete', (_, data) => {
+  window.electron.ipcRenderer.on('music-download-complete', async (_, data) => {
     if (data.success) {
-      // 从下载列表中移除
-      downloadList.value = downloadList.value.filter((item) => item.filename !== data.filename);
-      // 刷新已下载列表
-      refreshDownloadedList();
+      downloadList.value = downloadList.value.filter(item => item.filename !== data.filename);
+      // 延迟刷新已下载列表，避免文件系统未完全写入
+      setTimeout(() => refreshDownloadedList(), 500);
       message.success(t('download.message.downloadComplete', { filename: data.filename }));
     } else {
-      const existingItem = downloadList.value.find((item) => item.filename === data.filename);
+      const existingItem = downloadList.value.find(item => item.filename === data.filename);
       if (existingItem) {
         Object.assign(existingItem, {
           status: 'error',
@@ -495,12 +513,10 @@ onMounted(() => {
           progress: 0
         });
         setTimeout(() => {
-          downloadList.value = downloadList.value.filter((item) => item.filename !== data.filename);
+          downloadList.value = downloadList.value.filter(item => item.filename !== data.filename);
         }, 3000);
       }
-      message.error(
-        t('download.message.downloadFailed', { filename: data.filename, error: data.error })
-      );
+      message.error(t('download.message.downloadFailed', { filename: data.filename, error: data.error }));
     }
   });
 
@@ -522,7 +538,7 @@ onMounted(() => {
 });
 
 const handleDrawerClose = () => {
-  store.commit('setShowDownloadDrawer', false);
+  settingsStore.showDownloadDrawer = false;
 };
 </script>
 
@@ -562,9 +578,18 @@ const handleDrawerClose = () => {
   @apply flex-1 overflow-hidden pb-40;
 }
 
+.downloaded-header {
+  @apply flex items-center justify-between p-4 bg-light-100 dark:bg-dark-200 sticky top-0 z-10;
+  @apply border-b border-gray-100 dark:border-gray-800;
+
+  .header-title {
+    @apply text-sm font-medium text-gray-600 dark:text-gray-400;
+  }
+}
+
 .download-items,
 .downloaded-items {
-  @apply space-y-3;
+  @apply space-y-3 p-4;
 }
 
 .total-progress {
